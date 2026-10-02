@@ -19,7 +19,7 @@ export function UploadDrop({ onFile, disabled }: { onFile: (f: File) => void; di
         if (f && !disabled) onFile(f);
       }}
     >
-      <p style={{ margin: "0 0 8px" }}>Drop a CSV, XLSX or XLS file here</p>
+      <p style={{ margin: "0 0 8px" }}>Drop the Investran affiliate export here (CSV, XLSX or XLS)</p>
       {/* A label opens the native picker in every browser; a scripted click on an off-screen input does not. */}
       <label className={`btn pri${disabled ? " disabled" : ""}`} aria-disabled={disabled}>
         Choose file

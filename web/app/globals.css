@@ -47,6 +47,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--sys);outline-of
 .band .t{font-weight:600;font-size:17px}
 .band .s{font-size:12.5px;color:var(--band-muted)}
 .band .grow{flex:1}
+.band .back{display:inline-block;margin-bottom:6px;font-size:12.5px;color:var(--band-muted);text-decoration:none}
+.band .back:hover,.band .back:focus-visible{color:var(--band-ink);text-decoration:underline}
 .band .ph{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;text-align:right}
 .dots{display:flex;gap:6px;justify-content:flex-end;margin-top:6px}
 .dots i{width:8px;height:8px;border-radius:50%;background:var(--band-muted);opacity:.5}

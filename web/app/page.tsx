@@ -50,6 +50,11 @@ export default function Home() {
       </header>
       <section className="box" aria-labelledby="start-h">
         <h3 id="start-h">Start an onboarding run</h3>
+        <p className="sd" style={{ margin: "0 0 12px" }}>
+          Upload the Investran affiliate export; the run maps it to the Sage Intacct Affiliates upload
+          template, which is built in (ITEM_ID, NAME, ITEM_TYPE, DESCRIPTION, DONOTIMPORT), so there is
+          nothing to load on the Intacct side.
+        </p>
         <div className="two">
           <label className="field">
             Sponsor

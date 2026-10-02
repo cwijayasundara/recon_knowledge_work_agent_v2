@@ -32,7 +32,12 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 echo "Starting Postgres…"
-docker compose up -d postgres
+# A stopped container can still reference a compose network that has since been recreated
+# ("network ... not found"); recreating the container fixes it and keeps the pgdata volume.
+if ! docker compose up -d postgres; then
+  echo "Recreating the Postgres container (data in the pgdata volume is kept)…"
+  docker compose up -d --force-recreate postgres
+fi
 for _ in $(seq 1 60); do
   [[ "$(docker inspect -f '{{.State.Health.Status}}' "$(docker compose ps -q postgres)")" == "healthy" ]] && break
   sleep 1

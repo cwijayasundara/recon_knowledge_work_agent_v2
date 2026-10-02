@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/lib/api";
 import { activePhase, phaseState } from "@/lib/phases";
@@ -269,6 +270,7 @@ export function FlowShell({ runId }: { runId: string }) {
     <main className="app">
       <header className="band">
         <div>
+          <Link href="/" className="back">← All runs</Link>
           <div className="t">{flow.title}</div>
           <div className="s">{flow.subtitle}</div>
           <div className="meta" style={{ marginTop: 8 }}>
