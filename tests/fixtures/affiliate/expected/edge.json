@@ -1,0 +1,75 @@
+{
+  "bindings": {
+    "affiliate_id": "Affiliate ID",
+    "affiliate_name": "Affiliate Name"
+  },
+  "file": "edge.csv",
+  "findings": [
+    {
+      "code": "AFF_ERR_ITEM_ID_BLANK",
+      "row": 1,
+      "severity": "error"
+    },
+    {
+      "code": "AFF_ERR_ITEM_ID_TOO_LONG",
+      "row": 2,
+      "severity": "error"
+    },
+    {
+      "code": "AFF_ERR_ITEM_ID_DUPLICATE",
+      "row": 4,
+      "severity": "error"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 5,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_ERR_ITEM_ID_TRUNCATION_COLLISION",
+      "row": 6,
+      "severity": "error"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 7,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_CHARS_STRIPPED",
+      "row": 7,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_NAME_TRUNCATED",
+      "row": 8,
+      "severity": "warning"
+    }
+  ],
+  "fixes": [
+    {
+      "kind": "exclude_row",
+      "reason": "blank row",
+      "row": 1
+    },
+    {
+      "kind": "override_item_id",
+      "row": 2,
+      "value": "AFF_9999"
+    },
+    {
+      "kind": "override_item_id",
+      "row": 4,
+      "value": "AFF_9011"
+    },
+    {
+      "kind": "override_item_id",
+      "row": 6,
+      "value": "CASCADE_EMP_COINV_BETA"
+    }
+  ],
+  "header_row": 1,
+  "questions": 0,
+  "rows": null,
+  "sheet": "edge"
+}

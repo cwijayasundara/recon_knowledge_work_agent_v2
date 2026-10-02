@@ -1,0 +1,39 @@
+{
+  "$schema": "../schemas/ontology.schema.json",
+  "ontology_id": "investran-intacct-affiliate",
+  "version": "2.0.0",
+  "source_system": "investran",
+  "target_system": "intacct",
+  "entity_type": "affiliate",
+  "normalization_profile": "default-v1",
+  "source_concepts": [
+    {
+      "id": "affiliate_id",
+      "data_type": "string",
+      "semantic_type": "identifier",
+      "aliases": ["affiliate id", "affiliate_id"]
+    },
+    {
+      "id": "affiliate_name",
+      "data_type": "string",
+      "semantic_type": "name",
+      "aliases": ["affiliate name", "affiliate_name", "affiliate"]
+    }
+  ],
+  "attributes": [
+    {"target": "DONOTIMPORT", "mapping_type": "blank"},
+    {
+      "target": "ITEM_ID",
+      "mapping_type": "coalesce",
+      "inputs": ["affiliate_id", "affiliate_name"],
+      "note": "Use Affiliate Id when present; otherwise derive ITEM_ID from Affiliate Name and apply the Intacct 30-character limit."
+    },
+    {"target": "NAME", "mapping_type": "direct", "inputs": ["affiliate_name"]},
+    {"target": "DESCRIPTION", "mapping_type": "blank"},
+    {
+      "target": "ITEM_TYPE",
+      "mapping_type": "constant",
+      "note": "The screenshot hardcodes 'Non-Inventory'; the existing process fixture records 'Inventory' as the flow default and treats 'Non-Inventory' as an approved override."
+    }
+  ]
+}

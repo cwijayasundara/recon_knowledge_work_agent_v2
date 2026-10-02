@@ -1,0 +1,9 @@
+.venv
+.git
+.superpowers
+web
+var
+.cache
+**/__pycache__
+.playwright-mcp
+tests

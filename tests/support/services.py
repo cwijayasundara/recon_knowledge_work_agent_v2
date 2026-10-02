@@ -1,0 +1,56 @@
+"""Offline services: in-memory stores, in-memory history, scripted models, local sandbox."""
+
+from __future__ import annotations
+
+import shutil
+from pathlib import Path
+
+from onboarding_sdk.resolve import ColumnBindingResolver
+
+from onboarding_agent.assembly import Services, build_services, run_context
+from onboarding_agent.config import Settings
+from onboarding_agent.persistence.memory import memory_stores
+from onboarding_agent.run_context import RunContext
+from tests.conftest import FIXTURE_DIR, REPO_ROOT
+from tests.support.local_sandbox import local_sandbox_factory
+from tests.support.scripted_model import ScriptedChatModel
+
+
+class Models:
+    """Per-role scripted models; a test sets the scripts before running."""
+
+    def __init__(self) -> None:
+        self.supervisor = ScriptedChatModel()
+        self.recipe_engineer = ScriptedChatModel()
+
+    def __call__(self, role: str) -> ScriptedChatModel:
+        return self.supervisor if role == "supervisor" else self.recipe_engineer
+
+    @property
+    def calls(self) -> int:
+        return self.supervisor.calls + self.recipe_engineer.calls
+
+
+def offline_services(tmp_path: Path, models: Models) -> Services:
+    settings = Settings(_env_file=None, object_root=str(tmp_path / "objects"), sandbox_backend="docker")  # type: ignore[call-arg]
+    return build_services(
+        settings,
+        stores=memory_stores(tmp_path / "objects"),
+        resolver=ColumnBindingResolver.create(REPO_ROOT / "workspace/ontology/affiliate.v1.json"),
+        model_factory=models,  # type: ignore[arg-type]
+        sandbox_factory=local_sandbox_factory,
+    )
+
+
+def context_for(services: Services, fixture: str, run_id: str = "run-1", sponsor: str = "sponsor-a") -> RunContext:
+    target = services.stores.objects.local_path(f"runs/{run_id}/in/{fixture}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy(FIXTURE_DIR / fixture, target)
+    return run_context(
+        services,
+        run_id=run_id,
+        sponsor_id=sponsor,
+        entity="affiliate",
+        actor="analyst@sponsor-a",
+        upload_path=target,
+    )

@@ -1,0 +1,18 @@
+{
+  "bindings": {
+    "affiliate_id": "Affiliate ID",
+    "affiliate_name": "Affiliate Name"
+  },
+  "file": "empty.csv",
+  "findings": [
+    {
+      "code": "AFF_WARN_ZERO_RECORDS",
+      "row": null,
+      "severity": "warning"
+    }
+  ],
+  "header_row": 1,
+  "questions": 0,
+  "rows": [],
+  "sheet": "empty"
+}

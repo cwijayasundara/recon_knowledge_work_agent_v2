@@ -1,0 +1,97 @@
+[project]
+name = "onboarding-agent"
+version = "0.1.0"
+description = "Agentic onboarding workbench: Investran exports to Sage Intacct import files"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "onboarding-sdk",
+    "configurable-attribute-mapper[openai,postgres]",
+    "deepagents==0.7.19",
+    "langchain~=1.4",
+    "langgraph~=1.2.12",
+    "langchain-openai~=1.6",
+    "langgraph-checkpoint-postgres~=3.1",
+    "psycopg[binary,pool]~=3.3",
+    "pydantic~=2.13",
+    "pydantic-settings>=2.6",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.34",
+    "sse-starlette>=2.2",
+    "python-multipart>=0.0.20",
+    "docker>=7.1",
+    "azure-identity>=1.19",
+    "opentelemetry-sdk>=1.30",
+    "pyyaml>=6.0",
+    "httpx>=0.28",
+]
+
+[project.scripts]
+onboard = "onboarding_agent.surfaces.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.25",
+    "ruff>=0.9",
+    "mypy>=1.15",
+    "jsonschema>=4.23",
+    "types-pyyaml",
+    "types-docker",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/onboarding_agent"]
+
+[tool.uv.workspace]
+members = ["packages/onboarding_sdk"]
+
+# uv does not expand environment variables in source paths. The default below
+# assumes the sibling checkout layout; to use STRING_MATCHER_PATH instead run
+# `uv add --editable "$STRING_MATCHER_PATH"` or edit this path.
+[tool.uv.sources]
+onboarding-sdk = { workspace = true }
+configurable-attribute-mapper = { path = "../../advance_research/string_matcher_v1", editable = true }
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["web", "sandbox/executor/.venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src:packages/onboarding_sdk"
+ignore_missing_imports = true
+warn_unused_ignores = true
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["onboarding_sdk.*"]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["attribute_mapper.*"]
+follow_imports = "silent"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Explicit so tests do not depend on editable .pth files, which macOS can
+# flag hidden (Python then skips them).
+pythonpath = [".", "src", "packages/onboarding_sdk", "../../advance_research/string_matcher_v1/src"]
+addopts = "--strict-markers -m 'not live and not docker and not db'"
+asyncio_mode = "auto"
+markers = [
+    "live: needs OPENAI_API_KEY and calls a real model",
+    "docker: needs a running Docker daemon and the onb-sandbox image",
+    "db: needs the local Postgres from docker-compose",
+]

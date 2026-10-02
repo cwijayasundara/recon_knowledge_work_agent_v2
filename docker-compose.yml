@@ -1,0 +1,69 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: onboarding
+      POSTGRES_PASSWORD: onboarding
+      POSTGRES_DB: onboarding
+    ports:
+      - "55433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U onboarding"]
+      interval: 5s
+      retries: 10
+
+  api:
+    # Run scripts/vendor_matcher.sh before building.
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ONB_DATABASE_URL: postgresql://onboarding:onboarding@postgres:5432/onboarding
+      # Same absolute path in the API container and on the host: the sandbox
+      # containers the API starts bind-mount run directories by host path.
+      ONB_OBJECT_ROOT: ${PWD}/var/objects
+    volumes:
+      - ${PWD}/var/objects:${PWD}/var/objects
+      # Needed to start per-run sandbox containers; this grants the API control
+      # of the local Docker daemon, acceptable for local development only.
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    build:
+      context: ./web
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+  # Build target only: `docker compose build sandbox`. Run containers are
+  # started per run by DockerSandbox, never by compose.
+  sandbox:
+    build:
+      context: .
+      dockerfile: sandbox/Dockerfile
+    image: onb-sandbox
+    profiles: ["build"]
+
+volumes:
+  pgdata:
+
+# An explicit subnet: Docker's default address pools can run out on machines
+# with many compose projects.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.57.0.0/24

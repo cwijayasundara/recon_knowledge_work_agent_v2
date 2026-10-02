@@ -1,0 +1,40 @@
+{
+  "bindings": {
+    "affiliate_id": "Affiliate Id",
+    "affiliate_name": "Affiliate Name"
+  },
+  "file": "extra_columns.csv",
+  "findings": [
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 3,
+      "severity": "warning"
+    }
+  ],
+  "header_row": 1,
+  "questions": 0,
+  "rows": [
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9001",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Meridian Capital GP IV, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9002",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Summit Growth Management, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "CASCADE_EMPLOYEE_COINVESTMENT_",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Cascade Employee Coinvestment Program Alpha, LLC"
+    }
+  ],
+  "sheet": "extra_columns"
+}

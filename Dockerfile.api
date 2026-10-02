@@ -1,0 +1,20 @@
+# API image. Run scripts/vendor_matcher.sh first (it writes vendor/*.whl).
+# docker build -f Dockerfile.api -t onb-api .
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app
+COPY vendor/ /vendor/
+RUN pip install --no-cache-dir "$(ls /vendor/configurable_attribute_mapper-*.whl)[openai,postgres]"
+COPY packages/onboarding_sdk /app/packages/onboarding_sdk
+COPY pyproject.toml README.md* /app/
+COPY src /app/src
+RUN pip install --no-cache-dir /app/packages/onboarding_sdk /app
+COPY workspace /app/workspace
+COPY instructions /app/instructions
+
+RUN useradd --create-home --uid 1000 app
+USER app
+EXPOSE 8000
+ENV ONB_WORKSPACE_ROOT=/app/workspace
+CMD ["uvicorn", "--factory", "onboarding_agent.surfaces.api:app_factory", "--host", "0.0.0.0", "--port", "8000"]

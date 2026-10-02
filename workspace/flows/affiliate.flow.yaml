@@ -1,0 +1,54 @@
+# The Affiliate process-flow document as data. Titles use the document's
+# wording; step ids are fixed and the backend emits `step` events against them.
+entity: affiliate
+title: Affiliate Load
+subtitle: Affiliates are global — one file per fund complex
+legend:
+  - {type: system, label: "System / Automated", colour: blue}
+  - {type: analyst, label: "Analyst / Human Action", colour: red}
+  - {type: output, label: "Output / Success", colour: green}
+  - {type: risk, label: "Risk / Warning", colour: darkred}
+  - {type: decision, label: "Decision prompt", colour: amber}
+phases:
+  - id: p1
+    name: Upload & Identify
+    colour: teal
+    description: Upload the source file, detect sheets and headers, confirm the ID and Name columns.
+    gate: brief
+    steps:
+      - {id: p1.upload, type: analyst, title: "Upload source file (CSV, XLSX, XLS)", lens: upload}
+      - {id: p1.read, type: system, title: "System reads file — detects sheet count and column headers", lens: sheet_detect}
+      - {id: p1.select_id, type: analyst, title: "Select the column for Affiliate ID — system highlights best candidate · analyst confirms or overrides", lens: column_choice, field: affiliate_id}
+      - {id: p1.select_name, type: analyst, title: "Select the column for Affiliate Name", lens: column_choice, field: affiliate_name}
+      - {id: p1.saved, type: output, title: "Column choices saved", lens: saved}
+  - id: p2
+    name: ID Generation & Dedup
+    colour: blue
+    description: Inherit or derive ITEM_ID (≤30 characters), then dedup within the batch.
+    steps:
+      - {id: p2.logic, type: decision, title: "ID generation logic — how should Affiliate ID (ITEM_ID) be assigned?", lens: rule_text}
+      - {id: p2.options, type: analyst, title: "ID Assignment Options", lens: id_options}
+      - {id: p2.dedup, type: system, title: "Within-batch dedup — collapse to one record per ITEM_ID", lens: dedup_stats}
+      - {id: p2.collisions, type: risk, title: "Collisions are blocking errors — analyst must resolve manually before export", lens: collisions}
+      - {id: p2.review, type: analyst, title: "Analyst reviews deduped list, resolves any ID collisions", lens: id_preview_grid}
+  - id: p3
+    name: Map & Quality Assurance
+    colour: amber
+    description: Map to the Intacct template, resolve every ERR and acknowledge every WARN.
+    gate: findings
+    steps:
+      - {id: p3.map, type: decision, title: "Map source columns to Intacct Affiliate template fields", lens: rule_text}
+      - {id: p3.match_table, type: system, title: "Match Source Columns → Intacct Fields", lens: match_table}
+      - {id: p3.dq, type: risk, title: "Data Quality Flags — ERR / WARN", lens: dq_panel}
+      - {id: p3.gate, type: analyst, title: "Gate before Phase 4", lens: gate_bar}
+      - {id: p3.saved, type: output, title: "Mappings saved to DB", lens: saved}
+  - id: p4
+    name: Transform & Output
+    colour: green
+    description: Transform, final review, and generate the Intacct Affiliates upload template.
+    gate: signoff
+    steps:
+      - {id: p4.transform, type: system, title: "Transform each field on the affiliate list", lens: rule_text}
+      - {id: p4.final_review, type: analyst, title: "Final review — analyst approves transformed list before export", lens: final_review}
+      - {id: p4.preview, type: output, title: "Intacct Affiliates Upload Template — Output Preview", lens: template_preview}
+      - {id: p4.generate, type: output, title: "Generate Intacct Affiliates Upload Template", lens: generate}

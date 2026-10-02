@@ -1,0 +1,110 @@
+{
+  "bindings": {
+    "affiliate_id": null,
+    "affiliate_name": "Affiliate Name"
+  },
+  "file": "ids_missing.csv",
+  "findings": [
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 1,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 2,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 3,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 4,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 5,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 6,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 7,
+      "severity": "warning"
+    },
+    {
+      "code": "AFF_WARN_ITEM_ID_DERIVED",
+      "row": 8,
+      "severity": "warning"
+    }
+  ],
+  "header_row": 1,
+  "questions": 0,
+  "rows": [
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "MERIDIAN_CAPITAL_GP_IV_LLC",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Meridian Capital GP IV, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "SUMMIT_GROWTH_MANAGEMENT_LP",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Summit Growth Management, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AURORA_ADVISORY_SERVICES_LTD",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Aurora Advisory Services Ltd."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "CASCADE_VENTURE_GP_VI_LLC",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Cascade Venture GP VI, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "MERIDIAN_CARRIED_INTEREST_VEHI",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Meridian Carried Interest Vehicle, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "SUMMIT_COINVESTMENT_PARTNERS_L",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Summit Coinvestment Partners, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AURORA_LUXEMBOURG_HOLDCO_SA_RL",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Aurora Luxembourg Holdco S.a r.l."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "CASCADE_EMPLOYEE_INVESTMENT_PR",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Cascade Employee Investment Program, LLC"
+    }
+  ],
+  "sheet": "ids_missing"
+}

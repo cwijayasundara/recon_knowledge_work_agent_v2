@@ -1,0 +1,28 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    env:
+      STRING_MATCHER_PATH: ../../advance_research/string_matcher_v1
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: learning_101/recon_knowledge_work_agent_v2
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ vars.STRING_MATCHER_REPO }}
+          path: advance_research/string_matcher_v1
+      - uses: astral-sh/setup-uv@v5
+      - name: Install
+        working-directory: learning_101/recon_knowledge_work_agent_v2
+        run: uv sync --all-extras --dev
+      - name: Lint
+        working-directory: learning_101/recon_knowledge_work_agent_v2
+        run: uv run ruff check . && uv run ruff format --check .
+      - name: Type-check
+        working-directory: learning_101/recon_knowledge_work_agent_v2
+        run: uv run mypy src packages
+      - name: Offline tests
+        working-directory: learning_101/recon_knowledge_work_agent_v2
+        run: uv run pytest -q

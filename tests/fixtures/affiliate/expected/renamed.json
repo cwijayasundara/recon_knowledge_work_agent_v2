@@ -1,0 +1,69 @@
+{
+  "bindings": {
+    "affiliate_id": "Affiliate Id",
+    "affiliate_name": "Affi Name"
+  },
+  "file": "renamed.xlsx",
+  "findings": [],
+  "header_row": 1,
+  "questions": 1,
+  "rows": [
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9001",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Meridian Capital GP IV, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9002",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Summit Growth Management, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9003",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Aurora Advisory Services Ltd."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9004",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Cascade Venture GP VI, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9005",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Meridian Carried Interest Vehicle, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9006",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Summit Coinvestment Partners, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9007",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Aurora Luxembourg Holdco S.a r.l."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9008",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Cascade Employee Investment Program, LLC"
+    }
+  ],
+  "sheet": "Export"
+}

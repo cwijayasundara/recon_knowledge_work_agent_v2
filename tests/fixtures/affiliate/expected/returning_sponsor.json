@@ -1,0 +1,43 @@
+{
+  "after": "renamed.xlsx",
+  "bindings": {
+    "affiliate_id": "Affiliate Id",
+    "affiliate_name": "Affi Name"
+  },
+  "file": "returning_sponsor.xlsx",
+  "findings": [],
+  "header_row": 1,
+  "model_calls": 0,
+  "questions": 0,
+  "rows": [
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9101",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Harbor Point GP II, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9102",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Northwind Fund Management, L.P."
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9103",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Juniper Coinvestment Vehicle, LLC"
+    },
+    {
+      "DESCRIPTION": "",
+      "DONOTIMPORT": "",
+      "ITEM_ID": "AFF_9104",
+      "ITEM_TYPE": "Inventory",
+      "NAME": "Harbor Point Carry Partners, L.P."
+    }
+  ],
+  "sheet": "Export"
+}
