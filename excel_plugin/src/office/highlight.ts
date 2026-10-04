@@ -36,6 +36,38 @@ export function enqueue<T>(fn: () => Promise<T>): Promise<T> {
   return result;
 }
 
+/** Bound for an Excel operation the pane waits on (sheet removal before upload, the Review render after Apply). */
+export const EXCEL_OP_TIMEOUT_MS = 20_000;
+export const EXCEL_BUSY_MESSAGE = "Excel is busy (finish editing the cell), then try again.";
+
+/** An Excel operation did not finish within its bound: Excel defers API calls while a cell is being edited. */
+export class ExcelBusy extends Error {
+  constructor() {
+    super(EXCEL_BUSY_MESSAGE);
+    this.name = "ExcelBusy";
+  }
+}
+
+/**
+ * Runs `op` and waits at most `ms` for it. On timeout it rejects with ExcelBusy and aborts the signal it gave `op`, so
+ * an operation that has not started yet (still queued behind a deferred Excel.run) can skip its work when it does.
+ */
+export function withExcelTimeout<T>(op: (signal: AbortSignal) => Promise<T>, ms = EXCEL_OP_TIMEOUT_MS): Promise<T> {
+  const c = new AbortController();
+  const work = op(c.signal);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      c.abort();
+      work.catch(() => undefined); // a late failure has nobody left to tell
+      reject(new ExcelBusy());
+    }, ms);
+    work.then(
+      (v) => { clearTimeout(timer); resolve(v); },
+      (e: unknown) => { clearTimeout(timer); reject(e); },
+    );
+  });
+}
+
 const isItemNotFound = (e: unknown): boolean => typeof e === "object" && e !== null && (e as { code?: unknown }).code === "ItemNotFound";
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 

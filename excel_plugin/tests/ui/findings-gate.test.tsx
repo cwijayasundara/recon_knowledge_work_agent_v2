@@ -27,7 +27,7 @@ const brief: Brief = {
 };
 
 function paneWith(snap: Snapshot, opts: { busy?: boolean; respond?: RunStore["respond"] } = {}) {
-  const state: RunState = { runId: "r1", snap, grid: [], activity: [], error: null, busy: opts.busy ?? false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  const state: RunState = { runId: "r1", snap, grid: [], activity: [], error: null, busy: opts.busy ?? false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   const respond = vi.fn(opts.respond ?? (async () => true));
   const store: RunStore = { get: () => state, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(), respond };
   const client = { sponsors: vi.fn(async () => []) } as unknown as Client;

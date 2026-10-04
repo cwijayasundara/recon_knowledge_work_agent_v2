@@ -17,6 +17,11 @@ const HEADER = "ITEM_ID,NAME,ITEM_TYPE,DESCRIPTION,DONOTIMPORT";
 
 let client: Client;
 const stores: RunStore[] = [];
+const T0 = Date.now();
+/** Per store: every SSE message it received (id, event, ms since the suite started), for failure diagnostics. */
+const sseLogs = new WeakMap<RunStore, string[]>();
+/** Per store: idleSeq before the last gate post the test made directly with client.gate (not through the store). */
+const directPosts = new WeakMap<RunStore, number>();
 beforeAll(() => {
   const baseUrl = process.env.CONTRACT_API_URL;
   if (!baseUrl) throw new Error("CONTRACT_API_URL not set: run through `pnpm test:contract` (globalSetup starts the API)");
@@ -27,43 +32,74 @@ afterEach(() => { stores.splice(0).forEach((s) => s.stop()); });
 async function start(fixture: string, sponsor: string, opts: Parameters<typeof createRunStore>[1] = {}) {
   const bytes = readFileSync(path.join(FIXTURES, fixture));
   const { run_id } = await client.startRun(sponsor, new Blob([bytes]), fixture);
-  const store = createRunStore(client, opts);
+  const log: string[] = [];
+  const inner = opts.streamer ?? streamEvents;
+  // Records every message the store receives, then hands it on unchanged.
+  const streamer: typeof streamEvents = (o) => inner({
+    ...o,
+    onMessage: (m) => { log.push(`${m.id ?? "-"} ${m.event} +${Date.now() - T0}ms`); o.onMessage(m); },
+  });
+  const store = createRunStore(client, { ...opts, streamer });
+  sseLogs.set(store, log);
   stores.push(store);
   store.start(run_id);
   return { runId: run_id, store };
 }
 
-async function until(store: RunStore, label: string, pred: (s: RunState) => boolean, ms = 30_000): Promise<RunState> {
+/** The store state that matters when a wait fails: idle counters, the last decisions, the gate message, the SSE log. */
+function diagnostics(store: RunStore): string {
+  const s = store.get();
+  const last3 = (s.snap?.decisions ?? []).slice(-3).map((d) => `${d.seq}:${d.kind}`);
+  const seen3 = s.decisionLog.slice(-3).map((d) => `${d.seq}:${d.kind}@idle${d.idleSeq}`);
+  return [
+    `idleSeq=${s.idleSeq} snapIdleSeq=${s.snapIdleSeq} postIdleSeq=${s.postIdleSeq} directPostIdleSeq=${directPosts.get(store) ?? "-"} busy=${s.busy} connection=${s.connection}`,
+    `error: ${s.error}`,
+    `notice: ${s.notice}`,
+    `snapshot: ${JSON.stringify(s.snap && { status: s.snap.status, phase: s.snap.phase, working: s.snap.working, gate: s.snap.pending?.gate ?? null, job_error: s.snap.job_error })}`,
+    `pending.message: ${JSON.stringify(s.snap?.pending?.message ?? null)}`,
+    `last 3 decisions (snapshot): ${JSON.stringify(last3)}`,
+    `last 3 decisions (stream): ${JSON.stringify(seen3)}`,
+    `activity: ${JSON.stringify(s.activity)}`,
+    `sse (id event +ms): ${JSON.stringify(sseLogs.get(store) ?? [])}`,
+  ].join("\n");
+}
+
+// Kept above the store's 30 s settle bound, so a wait never ends before the store would re-enable on its own.
+async function until(store: RunStore, label: string, pred: (s: RunState) => boolean, ms = 45_000): Promise<RunState> {
   const t0 = Date.now();
   while (Date.now() - t0 < ms) {
     const s = store.get();
     if (pred(s)) return s;
     await new Promise((r) => setTimeout(r, 50));
   }
-  const s = store.get();
-  throw new Error(`timed out waiting for ${label}\nactivity: ${JSON.stringify(s.activity)}\nerror: ${s.error}\nsnapshot: ${JSON.stringify(s.snap && { status: s.snap.status, phase: s.snap.phase, working: s.snap.working, pending: s.snap.pending, job_error: s.snap.job_error })}`);
+  throw new Error(`timed out after ${ms} ms waiting for ${label}\n${diagnostics(store)}`);
 }
 function failure(store: RunStore, what: string): string {
-  const s = store.get();
-  return `${what}\nactivity: ${JSON.stringify(s.activity)}\nerror: ${s.error}\nsnapshot: ${JSON.stringify(s.snap && { status: s.snap.status, working: s.snap.working, pending: s.snap.pending?.gate })}`;
+  return `${what}\n${diagnostics(store)}`;
 }
-const atGate = (gate: string) => (s: RunState) => s.snap?.pending?.gate === gate && !s.snap.working && !s.busy;
+/**
+ * The snapshot was read by a refresh that started after an idle that followed the last gate post (the store's own, or
+ * one made directly with client.gate): it shows that post's outcome, not a mix of before and after.
+ */
+const fresh = (store: RunStore) => (s: RunState) => s.snapIdleSeq > Math.max(s.postIdleSeq, directPosts.get(store) ?? 0);
+const atGate = (store: RunStore, gate: string) => (s: RunState) =>
+  s.snap?.pending?.gate === gate && !s.snap.working && !s.busy && fresh(store)(s);
 
 async function approve(store: RunStore, gate: string, next: (s: RunState) => boolean, label: string) {
-  await until(store, `${gate} gate`, atGate(gate));
-  expect(await store.respond({ action: "approve" })).toBe(true);
+  await until(store, `${gate} gate`, atGate(store, gate));
+  expect(await store.respond({ action: "approve" }), failure(store, `approve at ${gate}`)).toBe(true);
   return until(store, label, next);
 }
 
 test("1 renamed.xlsx / sponsor-a: brief -> findings -> signoff -> locked, CSV downloads", async () => {
   const { runId, store } = await start("renamed.xlsx", "sponsor-a");
-  await approve(store, "brief", atGate("findings"), "findings gate");
-  const signoff = await approve(store, "findings", atGate("signoff"), "signoff gate");
+  await approve(store, "brief", atGate(store, "findings"), "findings gate");
+  const signoff = await approve(store, "findings", atGate(store, "signoff"), "signoff gate");
   const names = (signoff.snap?.pending?.artifacts ?? []).map((a) => a.name);
   expect(names).toContain("Affiliates.csv");
   expect(names).toContain("review.xlsx");
   expect(names).not.toContain("manifest.json"); // appears only after the final approve locks the run
-  const locked = await approve(store, "signoff", (s) => s.snap?.status === "locked" && !s.snap.working, "locked");
+  const locked = await approve(store, "signoff", (s) => s.snap?.status === "locked" && !s.snap.working && !s.busy && fresh(store)(s), "locked");
   expect(locked.snap?.pending).toBeNull();
   const all = locked.snap?.artifacts.map((a) => a.name) ?? [];
   expect(all).toEqual(expect.arrayContaining(["Affiliates.csv", "manifest.json"]));
@@ -74,7 +110,7 @@ test("1 renamed.xlsx / sponsor-a: brief -> findings -> signoff -> locked, CSV do
 
 test("2 titled.xlsx / sponsor-b: source grid is A1-anchored (row N = Excel row N)", async () => {
   const { runId, store } = await start("titled.xlsx", "sponsor-b");
-  const s = await until(store, "brief gate", atGate("brief"));
+  const s = await until(store, "brief gate", atGate(store, "brief"));
   expect(s.snap?.brief?.source.header_row).toBe(4);
   const source = await client.source(runId);
   expect(source.sheet).toBe("Affiliates");
@@ -105,15 +141,16 @@ test("3 a gate posted while working, or not at a gate, is a 409 and the store st
   } else {
     // Accepted (202): the run was already at a gate, so (a fresh run having approved nothing) an approve decision must
     // be recorded once the run settles.
-    const s = await until(store, "early approve recorded", (st) => !st.busy && !st.snap?.working && (st.snap?.decisions.some((d) => d.kind.endsWith(".approve")) ?? false));
+    const s = await until(store, "early approve recorded", (st) => !st.busy && !st.snap?.working && fresh(store)(st) && (st.snap?.decisions.some((d) => d.kind.endsWith(".approve")) ?? false));
     expect(s.snap?.decisions.filter((d) => d.kind.endsWith(".approve")), failure(store, "early approve")).toHaveLength(1);
   }
   // clean.csv for a known sponsor may skip the brief, so the run can be at any gate here.
-  const settledAtGate = (s: RunState) => !s.busy && !s.snap?.working && ["brief", "findings", "signoff"].includes(s.snap?.pending?.gate ?? "");
+  const settledAtGate = (s: RunState) => !s.busy && !s.snap?.working && fresh(store)(s) && ["brief", "findings", "signoff"].includes(s.snap?.pending?.gate ?? "");
   const before = await until(store, "a gate", settledAtGate);
   const gate = before.snap!.pending!.gate;
 
   // Two concurrent posts at a pending gate: the per-run job lock lets exactly one through.
+  directPosts.set(store, store.get().idleSeq);
   const [x, y] = await Promise.allSettled([client.gate(runId, { action: "approve" }), client.gate(runId, { action: "approve" })]);
   const results = [x, y];
   expect(results.filter((r) => r.status === "fulfilled"), `concurrent posts at ${gate}`).toHaveLength(1);
@@ -123,11 +160,11 @@ test("3 a gate posted while working, or not at a gate, is a 409 and the store st
   expect((rejected.reason as ApiError).message).toMatch(/already working|not waiting at a gate/);
   await store.refresh();
   // The winning approve was recorded exactly once.
-  const afterPosts = await until(store, `approve at ${gate} recorded`, (s) => !s.busy && !s.snap?.working && (s.snap?.decisions.filter((d) => d.kind === `${gate}.approve`).length ?? 0) > before.snap!.decisions.filter((d) => d.kind === `${gate}.approve`).length);
+  const afterPosts = await until(store, `approve at ${gate} recorded`, (s) => !s.busy && !s.snap?.working && fresh(store)(s) && (s.snap?.decisions.filter((d) => d.kind === `${gate}.approve`).length ?? 0) > before.snap!.decisions.filter((d) => d.kind === `${gate}.approve`).length);
   expect(afterPosts.snap!.decisions.filter((d) => d.kind === `${gate}.approve`).length).toBe(before.snap!.decisions.filter((d) => d.kind === `${gate}.approve`).length + 1);
 
   // Walk the remaining gates to the lock (none left when the race happened at sign-off).
-  const locked = (s: RunState) => s.snap?.status === "locked" && !s.snap.working && !s.busy;
+  const locked = (s: RunState) => s.snap?.status === "locked" && !s.snap.working && !s.busy && fresh(store)(s);
   for (let i = 0; i < 3 && !locked(store.get()); i++) {
     const s = await until(store, "next gate or locked", (st) => locked(st) || settledAtGate(st));
     if (locked(s)) break;
@@ -182,9 +219,9 @@ test("4 SSE aborted mid-run: the store reconnects with Last-Event-ID and reaches
     ]);
   } finally { clearTimeout(guard); }
   await until(store, "reconnect", () => seenLast.length >= 2);
-  await approve(store, "brief", atGate("findings"), "findings gate");
-  await approve(store, "findings", atGate("signoff"), "signoff gate");
-  const done = await approve(store, "signoff", (s) => s.snap?.status === "locked" && !s.snap.working, "locked");
+  await approve(store, "brief", atGate(store, "findings"), "findings gate");
+  await approve(store, "findings", atGate(store, "signoff"), "signoff gate");
+  const done = await approve(store, "signoff", (s) => s.snap?.status === "locked" && !s.snap.working && !s.busy && fresh(store)(s), "locked");
   expect(done.connection).toBe("connected");
   expect(seenLast[0]).toBeNull();
   expect(firstId).not.toBeNull();
@@ -194,7 +231,7 @@ test("4 SSE aborted mid-run: the store reconnects with Last-Event-ID and reaches
 
 test("5 dry-run returns an Impact and changes nothing; a change gate then updates the run", async () => {
   const { runId, store } = await start("edge.csv", "sponsor-b");
-  await approve(store, "brief", atGate("findings"), "findings gate");
+  await approve(store, "brief", atGate(store, "findings"), "findings gate");
   const before = await client.run(runId);
   const gridBefore = await client.grid(runId);
 
@@ -212,7 +249,7 @@ test("5 dry-run returns an Impact and changes nothing; a change gate then update
   expect((await client.grid(runId)).rows).toEqual(gridBefore.rows);
 
   expect(await store.respond({ action: "change", changes: [{ kind: "override_item_id", row: 2, value: "AFF_9999" }] })).toBe(true);
-  const s = await until(store, "override applied", (st) => !st.busy && !st.snap?.working && st.snap?.options.id_overrides["2"] === "AFF_9999");
+  const s = await until(store, "override applied", (st) => !st.busy && !st.snap?.working && fresh(store)(st) && st.snap?.options.id_overrides["2"] === "AFF_9999");
   const row = s.grid.find((r) => r.ITEM_ID === "AFF_9999");
   expect(row?.id_method).toBe("override");
   expect(s.snap?.pending?.gate).toBe("findings");
@@ -221,9 +258,9 @@ test("5 dry-run returns an Impact and changes nothing; a change gate then update
 test("6 POST /gate is 202 before validation: a refused override is reported as refused with the server's message, a valid one as applied", async () => {
   const { runId, store } = await start("edge.csv", "sponsor-b");
   // A sponsor with mapping history may skip the brief.
-  const first = await until(store, "brief or findings gate", (s) => atGate("brief")(s) || atGate("findings")(s));
-  if (first.snap?.pending?.gate === "brief") expect(await store.respond({ action: "approve" })).toBe(true);
-  await until(store, "findings gate", atGate("findings"));
+  const first = await until(store, "brief or findings gate", (s) => atGate(store, "brief")(s) || atGate(store, "findings")(s));
+  if (first.snap?.pending?.gate === "brief") expect(await store.respond({ action: "approve" }), failure(store, "approve brief")).toBe(true);
+  await until(store, "findings gate", atGate(store, "findings"));
 
   // Exactly what ReviewPanel.apply does: note the last decision and idle count, post, then read the verdict from a
   // snapshot fetched after the job's idle event.
@@ -231,7 +268,12 @@ test("6 POST /gate is 202 before validation: a refused override is reported as r
     const mark = markApply(store.get());
     expect(await store.respond({ action: "change", changes: [{ kind: "override_item_id", ...edit }] }), failure(store, "gate post")).toBe(true);
     const s = await until(store, `verdict for ${edit.value}`, (st) => verdictFrom(st, edit, mark).kind !== "pending");
-    expect(s.snapIdleSeq).toBeGreaterThan(mark.idleSeq);
+    expect(s.snapIdleSeq, failure(store, "verdict snapshot")).toBeGreaterThan(mark.idleSeq);
+    // Read after an idle that followed this Apply's own decision event.
+    const ours = s.decisionLog.filter((d) => d.seq > mark.sinceSeq && d.kind === "findings.change").at(-1);
+    expect(ours, failure(store, "decision event")).toBeDefined();
+    expect(s.snapIdleSeq, failure(store, "idle after decision")).toBeGreaterThan(ours!.idleSeq);
+    expect(s.busy).toBe(false);
     return verdictFrom(s, edit, mark);
   }
 

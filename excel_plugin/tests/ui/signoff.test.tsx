@@ -44,7 +44,7 @@ test("lists artifacts with sha and size; download calls onDownload and shows err
   expect(screen.getByTestId("error-banner").textContent).toContain("req-1");
 });
 
-const EMPTY: RunState = { runId: "r1", snap: null, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+const EMPTY: RunState = { runId: "r1", snap: null, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
 function mount(snap: ReturnType<typeof fakeSnapshot>, client: Partial<Client>, download = { saveBlob: vi.fn(async () => {}), openBrowser: vi.fn(async () => {}) }) {
   const store = { get: () => ({ ...EMPTY, snap }), subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(), respond: vi.fn(async () => true) } as unknown as RunStore;
   const full = { sponsors: async () => [], ...client } as unknown as Client;

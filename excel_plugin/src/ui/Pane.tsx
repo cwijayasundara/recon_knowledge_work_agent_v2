@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, type Client } from "../api/client";
 import { config } from "../config";
-import { excelRun, readSelectedColumn, selectColumn, selectHeaderRow, selectSheet, selectSourceCell, type ExcelRun } from "../office/highlight";
+import { EXCEL_OP_TIMEOUT_MS, ExcelBusy, excelRun, readSelectedColumn, selectColumn, selectHeaderRow, selectSheet, selectSourceCell, withExcelTimeout, type ExcelRun } from "../office/highlight";
 import { artifactUrl, downloadArtifact, officeDownloadDeps, type DownloadDeps } from "../office/download";
 import { REVIEW_SHEET, removeReviewSheet, selectReviewRow } from "../office/review";
 import type { Artifact, Finding } from "../api/types";
 import type { WorkbookFile } from "../office/workbook";
 import { blockedReasons, canApprove, canChangeFindings, gateMessage, pendingGate } from "../state/gates";
-import type { RunStore } from "../state/store";
+import { STALE_NOTICE, type RunStore } from "../state/store";
 import { BriefCard } from "./BriefCard";
 import { FindingsGate } from "./FindingsGate";
 import { FindingsList } from "./FindingsList";
@@ -28,16 +28,21 @@ export interface PaneProps {
   run?: ExcelRun;
   download?: DownloadDeps;
   /** Removes the add-in's own Review sheet before upload; defaults to removeReviewSheet on `run`. */
-  removeReview?: () => Promise<boolean>;
+  removeReview?: (signal: AbortSignal) => Promise<boolean>;
+  /** How long Onboard waits for that removal (and Apply for its render); EXCEL_OP_TIMEOUT_MS unless a test shortens it. */
+  excelOpTimeoutMs?: number;
 }
 
 function hostOf(base: string): string {
   try { return new URL(base).hostname; } catch { return base; }
 }
 
-export function Pane({ client, store, readFile, apiBase = config.apiBase, run = excelRun, download, removeReview }: PaneProps) {
+export function Pane({ client, store, readFile, apiBase = config.apiBase, run = excelRun, download, removeReview, excelOpTimeoutMs = EXCEL_OP_TIMEOUT_MS }: PaneProps) {
   const state = useStore(store);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
+  // Kept apart from localError (upload errors): a Retry must not clear an upload error, nor an upload the sponsor error.
+  const [sponsorsError, setSponsorsError] = useState<{ message: string; requestId?: string } | null>(null);
+  const [sponsorsAttempt, setSponsorsAttempt] = useState(0);
   const [sponsorId, setSponsorId] = useState("");
   const [uploading, setUploading] = useState(false);
   const [localError, setLocalError] = useState<{ message: string; requestId?: string } | null>(null);
@@ -60,12 +65,13 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
 
   useEffect(() => {
     let live = true;
+    setSponsorsError(null);
     client.sponsors().then(
       (list) => { if (live) setSponsors(list); },
-      (e: unknown) => { if (live) setLocalError(toError(e)); },
+      (e: unknown) => { if (live) setSponsorsError(toError(e)); },
     );
     return () => { live = false; };
-  }, [client]);
+  }, [client, sponsorsAttempt]);
 
   async function onboard() {
     if (inFlight.current || applyingRef.current) return;
@@ -83,9 +89,15 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
       // Stopping the store first unmounts its panel, so nothing re-renders the sheet between removal and the read.
       store.stop();
       try {
-        await (removeReview ?? (() => removeReviewSheet(run)))();
+        // Bounded: Excel defers calls while a cell is being edited. A removal that starts after the bound is skipped,
+        // so it cannot delete the sheet the restored run renders again.
+        await withExcelTimeout((signal) => (removeReview ?? ((s: AbortSignal) => removeReviewSheet(run, s)))(signal), excelOpTimeoutMs);
       } catch (e) {
-        if (alive.current) setLocalError({ message: `Could not remove the '${REVIEW_SHEET}' sheet before upload (${toError(e).message}). Delete that sheet, then try again.` });
+        if (alive.current) {
+          setLocalError(e instanceof ExcelBusy
+            ? { message: e.message }
+            : { message: `Could not remove the '${REVIEW_SHEET}' sheet before upload (${toError(e).message}). Delete that sheet, then try again.` });
+        }
         restore();
         return;
       }
@@ -216,7 +228,23 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
         </div>
       ) : null}
       {state.error ? <ErrorBanner message={state.error} /> : null}
+      {state.notice ? (
+        <p class="note" role="status" data-testid="store-notice">
+          <span>{state.notice}</span>
+          {state.notice === STALE_NOTICE ? (
+            <button type="button" class="secondary" data-testid="store-refresh" onClick={() => void store.refresh()}>Refresh</button>
+          ) : null}
+        </p>
+      ) : null}
       <SponsorPicker sponsors={sponsors} value={sponsorId} onChange={setSponsorId} />
+      {sponsorsError ? (
+        <div class="banner banner-error" role="alert" data-testid="sponsors-error">
+          <strong>Error: </strong>
+          <span>{`Could not load sponsors: ${sponsorsError.message}`}</span>
+          {sponsorsError.requestId ? <span class="ref">{` (ref ${sponsorsError.requestId})`}</span> : null}
+          <button type="button" data-testid="sponsors-retry" onClick={() => setSponsorsAttempt((n) => n + 1)}>Retry</button>
+        </div>
+      ) : null}
       {sponsorId ? (
         <p class="note" data-testid="consent-note">{`The whole workbook will be sent to ${hostOf(apiBase)} and filed under ${sponsorId}.`}</p>
       ) : null}
@@ -266,7 +294,7 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
         />
       ) : null}
       {running && state.snap?.result && state.runId ? (
-        <ReviewPanel client={client} runId={state.runId} store={store} rows={state.grid} total={state.snap.result.rows_emitted} run={run} onApplyingChange={onApplyingChange} />
+        <ReviewPanel client={client} runId={state.runId} store={store} rows={state.grid} total={state.snap.result.rows_emitted} run={run} onApplyingChange={onApplyingChange} excelOpTimeoutMs={excelOpTimeoutMs} />
       ) : null}
       {running && state.snap && (gate === "signoff" || artifacts.length > 0) ? (
         <SignOff

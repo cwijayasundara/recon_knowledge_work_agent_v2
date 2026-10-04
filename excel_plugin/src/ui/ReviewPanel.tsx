@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { ApiError, type Client } from "../api/client";
 import type { GridRow, Impact } from "../api/types";
-import { excelRun, type ExcelRun } from "../office/highlight";
+import { EXCEL_OP_TIMEOUT_MS, ExcelBusy, excelRun, withExcelTimeout, type ExcelRun } from "../office/highlight";
 import { REVIEW_SHEET, renderReview, watchReview } from "../office/review";
 import { canChangeFindings } from "../state/gates";
 import type { RunStore } from "../state/store";
@@ -23,6 +23,8 @@ export interface ReviewPanelProps {
   verdictTimeoutMs?: number;
   /** How long an Apply may hold uploads before the hold is released anyway; APPLY_HOLD_MAX_MS unless a test shortens it. */
   applyHoldMaxMs?: number;
+  /** How long an Apply waits for its Review render; EXCEL_OP_TIMEOUT_MS unless a test shortens it. */
+  excelOpTimeoutMs?: number;
 }
 
 interface Pending { row: number; value: string }
@@ -30,11 +32,16 @@ interface Pending { row: number; value: string }
 interface Awaiting { edit: Pending; mark: ApplyMark; timer: ReturnType<typeof setTimeout> }
 
 const SLOW_APPLY = "Apply is taking long; you can start a new upload.";
+/**
+ * The post was accepted (the verdict still comes from the run), only the re-render waits for Excel: nothing to try
+ * again. Not "applied": the run may still refuse the change, which is then shown on its own.
+ */
+export const RENDER_DEFERRED = "The change was sent; the Review sheet will refresh when Excel is free.";
 
 const asError = (e: unknown): { message: string; requestId?: string } =>
   e instanceof ApiError ? { message: e.message, requestId: e.requestId } : { message: e instanceof Error ? e.message : String(e) };
 
-export function ReviewPanel({ client, runId, store, rows, total, run = excelRun, onApplyingChange, verdictTimeoutMs = VERDICT_TIMEOUT_MS, applyHoldMaxMs = APPLY_HOLD_MAX_MS }: ReviewPanelProps) {
+export function ReviewPanel({ client, runId, store, rows, total, run = excelRun, onApplyingChange, verdictTimeoutMs = VERDICT_TIMEOUT_MS, applyHoldMaxMs = APPLY_HOLD_MAX_MS, excelOpTimeoutMs = EXCEL_OP_TIMEOUT_MS }: ReviewPanelProps) {
   const state = useStore(store);
   const [pending, setPending] = useState<Pending | null>(null);
   const [impact, setImpact] = useState<Impact | null>(null);
@@ -45,6 +52,7 @@ export function ReviewPanel({ client, runId, store, rows, total, run = excelRun,
   const [refusal, setRefusal] = useState<{ edit: Pending; message: string } | null>(null);
   const [unknown, setUnknown] = useState<Pending | null>(null);
   const [slow, setSlow] = useState<string | null>(null);
+  const [renderNote, setRenderNote] = useState<string | null>(null);
   /** Releases the running Apply's upload hold (at most once). */
   const releaseHold = useRef<(() => void) | null>(null);
   const awaiting = useRef<Awaiting | null>(null);
@@ -71,7 +79,10 @@ export function ReviewPanel({ client, runId, store, rows, total, run = excelRun,
 
   // The server grid is the truth: re-render on every change, which also recreates a deleted sheet.
   useEffect(() => {
-    renderReview(run, rows).catch((e: unknown) => { if (alive.current) setError(asError(e)); });
+    renderReview(run, rows).then(
+      () => { if (alive.current) setRenderNote(null); }, // Excel was free again: the sheet is current
+      (e: unknown) => { if (alive.current) setError(asError(e)); },
+    );
   }, [run, rows]);
 
   // Later request wins: a response for an older edit is ignored.
@@ -157,6 +168,7 @@ export function ReviewPanel({ client, runId, store, rows, total, run = excelRun,
     const mark = markApply(store.get());
     setApplying(true);
     setSlow(null);
+    setRenderNote(null);
     // Released exactly once, by the bound or by the end of this Apply: a late end must not release a newer hold.
     let held = true;
     const release = () => {
@@ -193,7 +205,14 @@ export function ReviewPanel({ client, runId, store, rows, total, run = excelRun,
       if (pendingRef.current === applied) clear();
       await store.refresh();
       if (!ours()) return;
-      await renderReview(run, store.get().grid);
+      // Bounded (Excel defers calls during cell edit); the grid effect re-renders the sheet once Excel is free.
+      try {
+        await withExcelTimeout((signal) => renderReview(run, store.get().grid, signal), excelOpTimeoutMs);
+      } catch (e) {
+        if (!(e instanceof ExcelBusy)) throw e;
+        if (alive.current) setRenderNote(RENDER_DEFERRED);
+        return;
+      }
       if (!ours()) return;
       const survivor = pendingRef.current;
       if (survivor) previewRef.current(survivor); // an edit made during Apply was checked against the old grid
@@ -220,6 +239,7 @@ export function ReviewPanel({ client, runId, store, rows, total, run = excelRun,
       ) : null}
       {notice ? <p class="note" role="status" data-testid="review-notice">{notice}</p> : null}
       {slow ? <p class="note" role="status" data-testid="review-slow">{slow}</p> : null}
+      {renderNote ? <p class="note" role="status" data-testid="review-render-note">{renderNote}</p> : null}
       {error ? <ErrorBanner message={error.message} requestId={error.requestId} /> : null}
       {unknown ? (
         <p class="note" role="status" data-testid="review-unknown">{`Verdict unknown — check the findings gate. Row ${unknown.row}: ITEM_ID to ${unknown.value} may not have been applied.`}</p>

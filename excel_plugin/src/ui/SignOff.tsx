@@ -42,7 +42,7 @@ export function SignOff({ snap, busy, artifacts, onApprove, onDownload, onOpenBr
       <h2>Sign-off</h2>
       {atGate ? (
         <>
-          <button type="button" data-testid="signoff-approve" disabled={!canApprove(snap, busy)} onClick={onApprove}>
+          <button type="button" data-testid="signoff-approve" disabled={!canApprove(snap, busy)} onClick={() => { if (canApprove(snap, busy)) onApprove(); }}>
             Approve sign-off
           </button>
           {reasons.length > 0 ? (

@@ -30,7 +30,7 @@ export function BriefCard({ brief, busy, canApprove, blockedReasons = [], header
                 aria-label={`Column for ${b.field}`}
                 value={b.column ?? ""}
                 disabled={busy}
-                onChange={(e) => onColumn(b.field, e.currentTarget.value || null)}
+                onChange={(e) => { if (!busy) onColumn(b.field, e.currentTarget.value || null); }}
               >
                 <option value="">(none)</option>
                 {b.column && !headers.includes(b.column) ? <option value={b.column}>{b.column}</option> : null}
@@ -48,7 +48,7 @@ export function BriefCard({ brief, busy, canApprove, blockedReasons = [], header
               </button>
             ) : null}
             {onUseSelected ? (
-              <button type="button" class="use-selected" disabled={busy} onClick={() => onUseSelected(b.field)}>
+              <button type="button" class="use-selected" disabled={busy} onClick={() => { if (!busy) onUseSelected(b.field); }}>
                 Use selected column
               </button>
             ) : null}
@@ -58,7 +58,7 @@ export function BriefCard({ brief, busy, canApprove, blockedReasons = [], header
       {brief.expected_findings.length > 0 ? (
         <p>Expected findings: {brief.expected_findings.join(", ")}</p>
       ) : null}
-      <button type="button" data-testid="approve-brief" disabled={busy || !canApprove} onClick={onApprove}>
+      <button type="button" data-testid="approve-brief" disabled={busy || !canApprove} onClick={() => { if (!busy && canApprove) onApprove(); }}>
         Approve brief
       </button>
       {blockedReasons.length > 0 ? (

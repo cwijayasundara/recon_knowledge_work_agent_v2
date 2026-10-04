@@ -34,9 +34,9 @@ async function race(before: Snapshot, inconsistent: Snapshot, consistent: Snapsh
     gate: vi.fn(async () => ({ accepted: true })),
     dryRun: vi.fn(async () => ({ violations: [], requires_rebuild: false, rows_changed: [2], findings_added: [], findings_removed: [], preview: [], publishable_before: false, publishable_after: true })),
   };
-  let push: (event: string) => void = () => {};
+  let push: (event: string, data?: unknown) => void = () => {};
   const streamer = async (o: { onMessage: (m: { id: string | null; event: string; data: string }) => void; signal: AbortSignal }) => {
-    push = (event) => o.onMessage({ id: "1", event, data: "{}" });
+    push = (event, data = {}) => o.onMessage({ id: "1", event, data: JSON.stringify(data) });
     await new Promise<void>((r) => o.signal.addEventListener("abort", () => r()));
   };
   const store = createRunStore(client as unknown as Client, { debounceMs: 5, streamer: streamer as never });
@@ -56,10 +56,11 @@ async function race(before: Snapshot, inconsistent: Snapshot, consistent: Snapsh
   run.mockResolvedValue(inconsistent); // every refresh until the idle: the job ended while the server read
   fireEvent.click(screen.getByTestId("review-apply"));
   await waitFor(() => expect(client.gate).toHaveBeenCalledTimes(1));
+  act(() => { push("decision", { entry: ours }); });
   await waitFor(() => expect(run.mock.calls.length).toBeGreaterThanOrEqual(3)); // apply's refresh and the post's
   await waitFor(() => expect(store.get().snap).toBe(inconsistent));
   await new Promise((r) => setTimeout(r, 30));
-  expect(store.get().busy).toBe(false);
+  expect(store.get().busy).toBe(true); // held for the post's outcome
   expect(screen.queryByTestId("review-refused")).toBeNull();
   expect(screen.queryByTestId("review-unknown")).toBeNull();
 

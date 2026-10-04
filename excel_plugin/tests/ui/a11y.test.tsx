@@ -27,7 +27,7 @@ const result = {
 const art = (name: string): Artifact => ({ name, key: `k/${name}`, sha256: "abcdef1234567890", kind: "csv", bytes: 120 });
 
 function mount(snap: Snapshot) {
-  const state: RunState = { runId: "r1", snap, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  const state: RunState = { runId: "r1", snap, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   const store: RunStore = { get: () => state, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(), respond: vi.fn(async () => true) };
   const client = { sponsors: vi.fn(async () => [{ id: "sponsor-a", name: "Sponsor A" }]) } as unknown as Client;
   render(<Pane client={client} store={store} readFile={vi.fn()} download={{ saveBlob: vi.fn(), openBrowser: vi.fn() }} />);

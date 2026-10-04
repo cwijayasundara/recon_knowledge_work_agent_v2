@@ -1,6 +1,9 @@
-import { expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   columnLetter,
+  EXCEL_OP_TIMEOUT_MS,
+  ExcelBusy,
+  withExcelTimeout,
   readSelectedColumn,
   selectColumn,
   selectHeaderRow,
@@ -107,4 +110,26 @@ test("non-ItemNotFound errors are not swallowed", async () => {
   const run: ExcelRun = () => Promise.reject(new Error("boom"));
   await expect(selectSheet(run, "S")).rejects.toThrow("boom");
   expect(await readSelectedColumn(run, "S", 1)).toEqual({ ok: false, message: expect.stringContaining("boom") as string });
+});
+
+describe("withExcelTimeout", () => {
+  test("passes a result or a failure through and clears its timer", async () => {
+    const clear = vi.spyOn(globalThis, "clearTimeout");
+    expect(await withExcelTimeout(async () => 7, 1000)).toBe(7);
+    await expect(withExcelTimeout(async () => { throw new Error("boom"); }, 1000)).rejects.toThrow("boom");
+    expect(clear).toHaveBeenCalledTimes(2);
+    clear.mockRestore();
+  });
+
+  test("a deferred operation ends as ExcelBusy after the bound and its signal aborts; a late failure is swallowed", async () => {
+    expect(EXCEL_OP_TIMEOUT_MS).toBe(20_000);
+    let seen: AbortSignal | null = null;
+    let fail!: (e: Error) => void;
+    const err = await withExcelTimeout((signal) => { seen = signal; return new Promise<never>((_r, j) => { fail = j; }); }, 10).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ExcelBusy);
+    expect((err as Error).message).toBe("Excel is busy (finish editing the cell), then try again.");
+    expect(seen!.aborted).toBe(true);
+    fail(new Error("late")); // must not surface as an unhandled rejection
+    await new Promise((r) => setTimeout(r, 0));
+  });
 });

@@ -1,5 +1,5 @@
 import { REQUEST_TIMEOUT_MS } from "../api/client";
-import type { Decision, Snapshot } from "../api/types";
+import type { Decision, GateBody, Snapshot, TypedChange } from "../api/types";
 import { gateMessage } from "./gates";
 import type { RunState } from "./store";
 
@@ -25,17 +25,39 @@ export type Verdict =
 export const lastDecisionSeq = (snap: Snapshot | null): number =>
   (snap?.decisions ?? []).reduce((m, d) => Math.max(m, d.seq), 0);
 
-function isOverride(c: unknown, edit: ItemIdEdit): boolean {
-  if (typeof c !== "object" || c === null) return false;
-  const o = c as Record<string, unknown>;
-  return o.kind === "override_item_id" && o.row === edit.row && o.value === edit.value;
+/** A decision event the store saw on the stream, with the idle count when it arrived. */
+export interface SeenDecision { seq: number; kind: string; payload: Record<string, unknown>; idleSeq: number }
+
+const same = (a: unknown, b: unknown): boolean => a === b || JSON.stringify(a) === JSON.stringify(b);
+
+/** Every field `wanted` sets is equal in `recorded`. */
+function covers(recorded: unknown, wanted: object): boolean {
+  if (typeof recorded !== "object" || recorded === null) return false;
+  const r = recorded as Record<string, unknown>;
+  return Object.entries(wanted).every(([k, v]) => v === undefined || same(r[k], v));
 }
 
+/**
+ * Whether a decision records the gate post `body` made at `gate` (null: the gate was not known). The run records
+ * `<gate>.<action>` with the server's dump of the body as payload, defaults filled in, so only the posted fields are
+ * compared, and each posted change must be among the recorded ones.
+ */
+export function decisionMatches(d: Pick<Decision, "kind" | "payload">, body: GateBody, gate: string | null): boolean {
+  if (gate ? d.kind !== `${gate}.${body.action}` : !d.kind.endsWith(`.${body.action}`)) return false;
+  return Object.entries(body).every(([k, v]) => {
+    if (v === undefined) return true;
+    if (k !== "changes") return same(d.payload[k], v);
+    const recorded = d.payload.changes;
+    return Array.isArray(recorded) && (v as TypedChange[]).every((c) => recorded.some((r: unknown) => covers(r, c)));
+  });
+}
+
+/** The gate body an Apply posts. */
+export const applyBody = (edit: ItemIdEdit): GateBody => ({ action: "change", changes: [{ kind: "override_item_id", row: edit.row, value: edit.value }] });
+
 /** The decision the run records for this Apply: findings.change whose payload carries this exact override. */
-function isApplyDecision(d: Decision, edit: ItemIdEdit, sinceSeq: number): boolean {
-  if (d.seq <= sinceSeq || d.kind !== "findings.change") return false;
-  const changes = d.payload.changes;
-  return Array.isArray(changes) && changes.some((c: unknown) => isOverride(c, edit));
+function isApplyDecision(d: Pick<Decision, "seq" | "kind" | "payload">, edit: ItemIdEdit, sinceSeq: number): boolean {
+  return d.seq > sinceSeq && decisionMatches(d, applyBody(edit), "findings");
 }
 
 /**
@@ -63,10 +85,14 @@ export const markApply = (state: Pick<RunState, "snap" | "idleSeq">): ApplyMark 
 /**
  * The Apply's verdict from store state. GET /runs/{id} reads the graph checkpoint (gate, message, overrides) before the
  * busy flag and the decisions, so a snapshot taken while the job ends can pair the old gate with `working: false` and
- * the new decision. Only a snapshot fetched by a refresh that started after an idle event that followed the post is
- * read; if no idle arrives (stream down), the Apply's timeout makes the verdict unknown.
+ * the new decision. Only a snapshot fetched by a refresh that started after an idle event that arrived after this
+ * Apply's own decision event is read: an idle from the job before (published after that job dropped its busy flag, or
+ * replayed after a reconnect) does not count. If no such idle arrives (stream down), the Apply's timeout makes the
+ * verdict unknown.
  */
-export function verdictFrom(state: Pick<RunState, "snap" | "busy" | "snapIdleSeq">, edit: ItemIdEdit, mark: ApplyMark): Verdict {
+export function verdictFrom(state: Pick<RunState, "snap" | "busy" | "snapIdleSeq" | "decisionLog">, edit: ItemIdEdit, mark: ApplyMark): Verdict {
   if (state.snapIdleSeq <= mark.idleSeq) return { kind: "pending" };
+  const seen = state.decisionLog.find((d) => isApplyDecision(d, edit, mark.sinceSeq));
+  if (!seen || state.snapIdleSeq <= seen.idleSeq) return { kind: "pending" };
   return applyVerdict(state.snap, state.busy, edit, mark.sinceSeq);
 }

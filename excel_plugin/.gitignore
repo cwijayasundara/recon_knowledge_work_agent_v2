@@ -2,3 +2,5 @@ node_modules
 dist
 coverage
 manifest.prod.xml
+.contract-last.log
+.contract-fail-*.log

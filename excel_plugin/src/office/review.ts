@@ -60,10 +60,14 @@ async function findReviewSheet(ctx: Excel.RequestContext): Promise<{ ws: Excel.W
   return { ws: found, owned: !mark.isNullObject };
 }
 
-/** Renders the grid into the add-in's own Review sheet; rejects with ReviewSheetConflict when the name is taken by a user sheet. */
-export function renderReview(run: ExcelRun, rows: GridRow[]): Promise<void> {
+/**
+ * Renders the grid into the add-in's own Review sheet; rejects with ReviewSheetConflict when the name is taken by a user
+ * sheet. Skipped when `signal` has aborted before the render starts (a caller stopped waiting for it).
+ */
+export function renderReview(run: ExcelRun, rows: GridRow[], signal?: AbortSignal): Promise<void> {
   return enqueue(() =>
       run(async (ctx) => {
+        if (signal?.aborted) return;
         const existing = await findReviewSheet(ctx);
         let ws: Excel.Worksheet;
         if (existing === null) {
@@ -108,11 +112,13 @@ export function renderReview(run: ExcelRun, rows: GridRow[]): Promise<void> {
 
 /**
  * Deletes the add-in-owned Review sheet (a rendering, so nothing is lost) so it is not uploaded with the workbook.
- * A same-named sheet the add-in did not create is left alone. Resolves true when a sheet was deleted.
+ * A same-named sheet the add-in did not create is left alone. Resolves true when a sheet was deleted. Skipped when
+ * `signal` has aborted before the removal starts: the caller gave up on it, and a later render must not be undone.
  */
-export function removeReviewSheet(run: ExcelRun): Promise<boolean> {
+export function removeReviewSheet(run: ExcelRun, signal?: AbortSignal): Promise<boolean> {
   return enqueue(() =>
     run(async (ctx) => {
+      if (signal?.aborted) return false;
       const existing = await findReviewSheet(ctx);
       if (existing === null || !existing.owned) return false;
       existing.ws.delete();

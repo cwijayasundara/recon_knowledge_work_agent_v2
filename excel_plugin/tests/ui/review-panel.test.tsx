@@ -30,7 +30,7 @@ function setup(opts: { pending?: Pending | null; dryRun?: Client["dryRun"]; tota
   if (opts.userSheet) fake.addSheet(REVIEW_SHEET).values.set("1,1", "mine");
   let state: RunState = {
     runId: "r1", snap: fakeSnapshot({ pending: opts.pending === undefined ? findings : opts.pending }), grid: rows,
-    activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0,
+    activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null,
   };
   const listeners = new Set<() => void>();
   const store: RunStore = {
@@ -58,14 +58,17 @@ function setup(opts: { pending?: Pending | null; dryRun?: Client["dryRun"]; tota
   const setSnap = (snap: Snapshot, busy = false, afterIdle = true) => {
     act(() => {
       const idleSeq = afterIdle ? state.idleSeq + 1 : state.idleSeq;
-      state = { ...state, snap, busy, idleSeq, snapIdleSeq: afterIdle ? idleSeq : state.snapIdleSeq };
+      // The run published each new decision before the idle that ended its job.
+      const seen = new Set(state.decisionLog.map((d) => d.seq));
+      const decisionLog = [...state.decisionLog, ...snap.decisions.filter((d) => !seen.has(d.seq)).map((d) => ({ seq: d.seq, kind: d.kind, payload: d.payload, idleSeq: state.idleSeq }))];
+      state = { ...state, snap, busy, idleSeq, decisionLog, snapIdleSeq: afterIdle ? idleSeq : state.snapIdleSeq };
       listeners.forEach((l) => l());
     });
   };
   /** An idle event alone (the store refreshes after it; that refresh is a later setSnap). */
   const idle = () => { act(() => { state = { ...state, idleSeq: state.idleSeq + 1 }; listeners.forEach((l) => l()); }); };
   /** What "Onboard again" does first: the store forgets the run and tells its listeners (the re-render is deferred). */
-  const stopRun = () => { state = { runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0 }; listeners.forEach((l) => l()); };
+  const stopRun = () => { state = { runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null }; listeners.forEach((l) => l()); };
   return { fake, store, dryRun, edit, setError, setSnap, idle, stopRun, get: () => state };
 }
 
@@ -316,7 +319,7 @@ test("a message already on the gate before Apply is not mistaken for the verdict
 test("a failed Apply inside the Pane shows exactly one error banner and keeps the edit", async () => {
   const fake = createFakeReview();
   const result = { rows_emitted: 2, rows_dropped: 0, findings_by_code: {}, errors: 0, ack_required: 0, publishable: true, findings: [] };
-  let state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  let state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   const listeners = new Set<() => void>();
   const notify = () => listeners.forEach((l) => l());
   const store: RunStore = {
@@ -455,7 +458,7 @@ test("Apply is unavailable at a re-entered brief gate with a stale result, and s
 test("Onboard is disabled while an Apply is in flight, and enabled again when it ends", async () => {
   const fake = createFakeReview();
   const result = { rows_emitted: 2, rows_dropped: 0, findings_by_code: {}, errors: 0, ack_required: 0, publishable: true, findings: [] };
-  const state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  const state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   let release: (ok: boolean) => void = () => {};
   const store: RunStore = {
     get: () => state, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(async () => {}),
@@ -545,7 +548,7 @@ test("unmounting during a hung Apply releases the hold at once", async () => {
 test("Onboard, held by a hung Apply, is enabled again after APPLY_HOLD_MAX_MS (fake timers)", async () => {
   const fake = createFakeReview();
   const result = { rows_emitted: 2, rows_dropped: 0, findings_by_code: {}, errors: 0, ack_required: 0, publishable: true, findings: [] };
-  const state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  const state: RunState = { runId: "r1", snap: fakeSnapshot({ result, pending: findings }), grid: rows, activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   const store: RunStore = {
     get: () => state, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(async () => {}),
     respond: vi.fn(() => new Promise<boolean>(() => {})), // the gate POST never answers

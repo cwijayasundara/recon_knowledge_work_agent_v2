@@ -28,7 +28,7 @@ function setup(findings: Finding[], opts: { busy?: boolean; respond?: RunStore["
   const result = { rows_emitted: 0, rows_dropped: 0, findings_by_code: {}, errors: 0, ack_required: 0, publishable: false, findings };
   const state: RunState = {
     runId: "r1", snap: fakeSnapshot({ layout: { sheet: "S1", header_row: 3 }, result, pending: opts.pending === undefined ? gate : opts.pending }),
-    grid: [], activity: [], error: null, busy: opts.busy ?? false, connection: "connected", idleSeq: 0, snapIdleSeq: 0,
+    grid: [], activity: [], error: null, busy: opts.busy ?? false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null,
   };
   const respond = vi.fn(opts.respond ?? (async () => true));
   const store: RunStore = { get: () => state, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(), respond };

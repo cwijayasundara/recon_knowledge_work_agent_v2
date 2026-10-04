@@ -77,7 +77,7 @@ test("question buttons disabled while busy", () => {
 });
 
 function paneWith(state: Partial<RunState>) {
-  const full: RunState = { runId: "r1", snap: null, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, ...state };
+  const full: RunState = { runId: "r1", snap: null, grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null, ...state };
   const store: RunStore = {
     get: () => full, subscribe: () => () => {}, start: vi.fn(), stop: vi.fn(), refresh: vi.fn(), respond: vi.fn(async () => true),
   };
@@ -116,4 +116,18 @@ test("pane hides cards at other gates and when busy disables buttons", () => {
   cleanup();
   paneWith({ snap: gated(), busy: true });
   for (const b of screen.getAllByRole("button", { name: /Col|Approve/ })) expect((b as HTMLButtonElement).disabled).toBe(true);
+});
+
+test("while busy, no card control posts even if a click or change gets through (jsdom dispatches to disabled controls)", () => {
+  const onApprove = vi.fn();
+  const onColumn = vi.fn();
+  const onUseSelected = vi.fn();
+  const onAnswer = vi.fn();
+  render(<BriefCard brief={brief} busy canApprove onApprove={onApprove} onColumn={onColumn} onUseSelected={onUseSelected} headers={["X", "Y"]} />);
+  fireEvent.click(screen.getByTestId("approve-brief"));
+  fireEvent.change(screen.getAllByRole("combobox")[0]!, { target: { value: "Y" } });
+  for (const b of screen.getAllByText("Use selected column")) fireEvent.click(b);
+  render(<QuestionCard question={question} busy onAnswer={onAnswer} />);
+  for (const b of screen.getAllByRole("button", { name: question.options[0] })) fireEvent.click(b);
+  expect([onApprove, onColumn, onUseSelected, onAnswer].map((f) => f.mock.calls.length)).toEqual([0, 0, 0, 0]);
 });

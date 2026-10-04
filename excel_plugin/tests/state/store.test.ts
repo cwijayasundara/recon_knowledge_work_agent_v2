@@ -51,8 +51,8 @@ test("respond marks busy, posts the gate and refreshes; a 409 shows the server m
   expect(store.get().busy).toBe(false);
 });
 
-test("respond posts the body, sets busy, then refreshes", async () => {
-  const { store, client } = setup();
+test("respond posts the body, sets busy, then refreshes; busy holds until a refresh after its decision and idle", async () => {
+  const { store, client, push } = setup();
   store.start("r1"); await vi.advanceTimersByTimeAsync(0);
   client.run.mockClear();
   expect(await store.respond({ action: "approve" })).toBe(true);
@@ -60,7 +60,13 @@ test("respond posts the body, sets busy, then refreshes", async () => {
   expect(store.get().busy).toBe(true);
   await vi.advanceTimersByTimeAsync(50);
   expect(client.run).toHaveBeenCalledTimes(1);
+  expect(store.get().busy).toBe(true); // that refresh may predate the job's end
+  push("decision", { entry: { seq: 1, kind: "brief.approve", payload: { action: "approve" }, actor: "a" } });
+  push("idle");
+  expect(store.get().busy).toBe(true); // counted, not yet fetched
+  await vi.advanceTimersByTimeAsync(50);
   expect(store.get().busy).toBe(false);
+  expect(store.get().notice).toBeNull();
 });
 
 test("a reconnect refreshes from the snapshot (server history may have been lost)", async () => {
@@ -91,7 +97,7 @@ test("stop resets the run state so a stopped run's cards cannot reappear", async
   expect(store.get()).toMatchObject({ runId: "r1", grid: [{ row: 2 }], activity: ["analyst: approve"], error: "nope (ref rid)" });
   expect(store.get().snap).not.toBeNull();
   store.stop();
-  expect(store.get()).toEqual({ runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0 });
+  expect(store.get()).toEqual({ runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null });
 });
 
 test("a refresh response that arrives after stop does not update state", async () => {

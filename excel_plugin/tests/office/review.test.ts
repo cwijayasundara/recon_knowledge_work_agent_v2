@@ -291,3 +291,15 @@ test("a failed removal rejects so the caller can block the upload", async () => 
   await expect(removeReviewSheet(run)).rejects.toThrow("delete failed");
   expect(fake.sheet(REVIEW_SHEET)).toBeTruthy();
 });
+
+test("a render or removal whose caller already gave up (aborted signal) does nothing when it starts", async () => {
+  const { fake, run } = await setup();
+  const gaveUp = new AbortController();
+  gaveUp.abort();
+  expect(await removeReviewSheet(run, gaveUp.signal)).toBe(false);
+  expect(fake.sheetNames()).toContain(REVIEW_SHEET);
+  const empty = createFakeReview();
+  await renderReview(empty.run as ExcelRun, rows, gaveUp.signal);
+  expect(empty.sheetNames()).not.toContain(REVIEW_SHEET);
+  expect(await removeReviewSheet(run, new AbortController().signal)).toBe(true);
+});

@@ -44,11 +44,21 @@ test("a clean run goes brief -> findings (zero findings) -> signoff -> locked us
     grid: vi.fn(async () => ({ total: 1, rows: [row], item_id_limit: 40 })),
     gate: vi.fn(async (_id: string, body: GateBody) => {
       posted.push(body);
+      const gate = STEPS[step]?.pending?.gate;
       if (body.action === "approve" && step < STEPS.length - 1) step++;
+      // The job records the decision, then ends with idle (after the 202, as the server's worker thread does).
+      setTimeout(() => {
+        emit("decision", { entry: { seq: posted.length, kind: `${gate}.${body.action}`, payload: body, actor: "analyst" } });
+        emit("idle", {});
+      }, 0);
       return { accepted: true };
     }),
   } as unknown as Client;
-  const streamer = async (o: { signal: AbortSignal }) => { await new Promise<void>((r) => o.signal.addEventListener("abort", () => r())); };
+  let emit: (event: string, data: unknown) => void = () => {};
+  const streamer = async (o: { signal: AbortSignal; onMessage: (m: { id: string | null; event: string; data: string }) => void }) => {
+    emit = (event, data) => o.onMessage({ id: null, event, data: JSON.stringify(data) });
+    await new Promise<void>((r) => o.signal.addEventListener("abort", () => r()));
+  };
   const store = createRunStore(client, { debounceMs: 5, streamer: streamer as never });
   const review = createFakeReview();
   render(<Pane client={client} store={store} readFile={async () => file} run={review.run as ExcelRun} apiBase="https://api.example.test" />);

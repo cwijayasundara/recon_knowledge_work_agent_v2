@@ -23,7 +23,7 @@ function setup(selection: FakeSelection, sheetGrid: string[][] = grid) {
   const fake = createFakeExcel({ S1: { grid: sheetGrid } }, selection);
   const mk = (header_row: number, pending: Pending | null) =>
     fakeSnapshot({ brief, layout: { sheet: "S1", header_row }, pending });
-  let state: RunState = { runId: "r1", snap: mk(3, brief4), grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0 };
+  let state: RunState = { runId: "r1", snap: mk(3, brief4), grid: [], activity: [], error: null, busy: false, connection: "connected", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
   const listeners = new Set<() => void>();
   const store: RunStore = {
     get: () => state, subscribe: (fn) => { listeners.add(fn); return () => { listeners.delete(fn); }; },

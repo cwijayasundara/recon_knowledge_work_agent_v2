@@ -12,9 +12,9 @@ import { createFakeReview } from "../support/review-fake";
 afterEach(cleanup);
 
 const file: WorkbookFile = { blob: new Blob(["x"]), name: "affiliates.xlsx", sha256: "abc", bytes: 1 };
-const EMPTY: RunState = { runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0 };
+const EMPTY: RunState = { runId: null, snap: null, grid: [], activity: [], error: null, busy: false, connection: "idle", idleSeq: 0, snapIdleSeq: 0, postIdleSeq: 0, decisionLog: [], notice: null };
 
-function setup(over: { readFile?: () => Promise<WorkbookFile>; startRun?: Client["startRun"]; snapSha?: string | undefined; order?: string[]; removeReview?: () => Promise<boolean>; initial?: RunState } = {}) {
+function setup(over: { readFile?: () => Promise<WorkbookFile>; startRun?: Client["startRun"]; snapSha?: string | undefined; order?: string[]; removeReview?: (signal: AbortSignal) => Promise<boolean>; initial?: RunState; sponsors?: Client["sponsors"]; excelOpTimeoutMs?: number; run?: ExcelRun } = {}) {
   const excel = createFakeReview();
   let state: RunState = over.initial ?? EMPTY;
   const listeners = new Set<() => void>();
@@ -32,11 +32,12 @@ function setup(over: { readFile?: () => Promise<WorkbookFile>; startRun?: Client
   };
   const startRun = over.startRun ?? vi.fn(async () => { over.order?.push("startRun"); return { run_id: "r1" }; });
   const run = vi.fn(async () => fakeSnapshot({ upload: { key: "k", name: "n", sha256: "snapSha" in over ? over.snapSha : "abc" } }));
-  const client = { sponsors: vi.fn(async () => [{ id: "sponsor-a", name: "Sponsor A" }]), startRun, run } as unknown as Client;
+  const sponsors = vi.fn(over.sponsors ?? (async () => [{ id: "sponsor-a", name: "Sponsor A" }]));
+  const client = { sponsors, startRun, run } as unknown as Client;
   const readFile = over.readFile ?? vi.fn(async () => { over.order?.push("read"); return file; });
   const removeReview = over.removeReview ? vi.fn(over.removeReview) : undefined;
-  const view = render(<Pane client={client} store={store} readFile={readFile} apiBase="https://api.example.test:8443" run={excel.run as ExcelRun} removeReview={removeReview} />);
-  return { store, client, startRun, readFile, view, excel };
+  const view = render(<Pane client={client} store={store} readFile={readFile} apiBase="https://api.example.test:8443" run={over.run ?? (excel.run as ExcelRun)} removeReview={removeReview} excelOpTimeoutMs={over.excelOpTimeoutMs} />);
+  return { store, client, startRun, readFile, view, excel, sponsors };
 }
 
 async function choose() {
@@ -237,4 +238,72 @@ const BRIEF_GATE = { gate: "brief" as const, message: "The agent did not submit 
 test("a brief-gate message shows even when there is no brief (scoping failed)", async () => {
   setup({ initial: { ...EMPTY, runId: "r1", snap: fakeSnapshot({ brief: null, pending: BRIEF_GATE, gate_message: BRIEF_GATE.message }) } });
   expect((await screen.findAllByTestId("gate-message")).map((e) => e.textContent)).toEqual([BRIEF_GATE.message]);
+});
+
+test("sponsors that fail to load show a Retry that fetches them again; the success path is unchanged", async () => {
+  const sponsors = vi.fn<Client["sponsors"]>()
+    .mockRejectedValueOnce(new Error("Sign-in did not complete. Reopen the pane or retry."))
+    .mockResolvedValueOnce([{ id: "sponsor-a", name: "Sponsor A" }]);
+  setup({ sponsors });
+  const banner = await screen.findByTestId("sponsors-error");
+  expect(banner.textContent).toBe("Error: Could not load sponsors: Sign-in did not complete. Reopen the pane or retry.Retry");
+  expect(screen.queryByRole("option", { name: "Sponsor A" })).toBeNull();
+  fireEvent.click(screen.getByTestId("sponsors-retry"));
+  await screen.findByRole("option", { name: "Sponsor A" });
+  expect(sponsors).toHaveBeenCalledTimes(2);
+  expect(screen.queryByTestId("sponsors-error")).toBeNull();
+  await choose();
+  expect((screen.getByTestId("onboard-button") as HTMLButtonElement).disabled).toBe(false);
+});
+
+test("a sponsors failure with a request id shows it; a retry leaves an upload error alone", async () => {
+  const sponsors = vi.fn<Client["sponsors"]>()
+    .mockResolvedValueOnce([{ id: "sponsor-a", name: "Sponsor A" }])
+    .mockRejectedValueOnce(new ApiError("Request timed out after 30 s", 0, "rq-7"));
+  const { view, store } = setup({ sponsors, readFile: async () => { throw new WorkbookError("unsaved", "Save the workbook first so it has a file name"); } });
+  await choose();
+  fireEvent.click(screen.getByTestId("onboard-button"));
+  expect((await screen.findByTestId("error-banner")).textContent).toContain("Save the workbook first");
+  // A new client (as after a pane reload) refetches; this one fails and offers Retry.
+  view.rerender(<Pane client={{ sponsors, startRun: vi.fn(), run: vi.fn() } as unknown as Client} store={store} readFile={vi.fn()} apiBase="https://api.example.test:8443" />);
+  expect((await screen.findByTestId("sponsors-error")).textContent).toContain("(ref rq-7)");
+  expect(screen.getByTestId("error-banner").textContent).toContain("Save the workbook first");
+});
+
+test("a removal Excel defers past the bound blocks the upload with 'Excel is busy', restores the previous run, and a late completion changes nothing", async () => {
+  let finish!: (v: boolean) => void;
+  const removeReview = vi.fn<(signal: AbortSignal) => Promise<boolean>>(() => new Promise<boolean>((r) => { finish = r; }));
+  const { store, startRun, readFile } = setup({ initial: PREVIOUS, removeReview, excelOpTimeoutMs: 30 });
+  await choose();
+  fireEvent.click(screen.getByTestId("onboard-button"));
+  expect(screen.getByTestId("onboard-button").textContent).toBe("Uploading...");
+  expect((await screen.findByTestId("error-banner")).textContent).toBe("Error: Excel is busy (finish editing the cell), then try again.");
+  await waitFor(() => expect(store.start).toHaveBeenCalledWith("r0"));
+  expect((screen.getByTestId("onboard-button") as HTMLButtonElement).disabled).toBe(false);
+  const signal = removeReview.mock.calls[0]![0];
+  expect(signal.aborted).toBe(true); // a removal that has not started yet skips its work
+  finish(true);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(readFile).not.toHaveBeenCalled();
+  expect(startRun).not.toHaveBeenCalled();
+  expect(store.start).toHaveBeenCalledTimes(1);
+  expect(screen.getByTestId("error-banner").textContent).toBe("Error: Excel is busy (finish editing the cell), then try again.");
+});
+
+test("the real removal, deferred by Excel past the bound, does not delete the sheet the restored run renders", async () => {
+  let open!: () => void;
+  const opened = new Promise<void>((r) => { open = r; });
+  const fake = createFakeReview();
+  fake.addSheet(REVIEW_SHEET).names.add(OWNER_MARK);
+  // Excel.run that waits (cell-edit mode) before it runs the batch.
+  const deferred: ExcelRun = async (cb) => { await opened; return (fake.run as ExcelRun)(cb); };
+  const { store, startRun } = setup({ initial: PREVIOUS, run: deferred, excelOpTimeoutMs: 30 });
+  await choose();
+  fireEvent.click(screen.getByTestId("onboard-button"));
+  expect((await screen.findByTestId("error-banner")).textContent).toContain("Excel is busy");
+  await waitFor(() => expect(store.start).toHaveBeenCalledWith("r0"));
+  open();
+  await new Promise((r) => setTimeout(r, 20));
+  expect(fake.sheetNames()).toContain(REVIEW_SHEET);
+  expect(startRun).not.toHaveBeenCalled();
 });

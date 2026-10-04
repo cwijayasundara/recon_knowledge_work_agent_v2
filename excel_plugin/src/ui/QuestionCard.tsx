@@ -18,7 +18,7 @@ export function QuestionCard({ question, busy, onAnswer }: QuestionCardProps) {
             key={option}
             disabled={busy}
             onClick={() => {
-              onAnswer(option);
+              if (!busy) onAnswer(option);
             }}
           >
             {option}
