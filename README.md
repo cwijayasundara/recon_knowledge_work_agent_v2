@@ -88,6 +88,74 @@ docker compose up -d --build            # postgres, api (:8000) and web (:3000)
 
 The API container mounts the Docker socket to start sandbox containers; this is for local development only.
 
+## Excel add-in
+
+`excel_plugin/` is an Office task-pane add-in that drives the same API from inside Excel: it uploads the open workbook,
+shows the brief and findings, and offers sign-off and the Intacct files. It needs Excel (Microsoft 365) on Windows, Mac
+or the web. Full details (configuration, production deploy, manual checklist) are in `excel_plugin/README.md`.
+
+### Run it against the backend
+
+1. Start the backend from the repo root, allowing the add-in origins for CORS (`ONB_CORS_ORIGINS`, comma-separated).
+   Pick one:
+
+   ```bash
+   # Offline, scripted agent (no key, no Docker)
+   ONB_CORS_ORIGINS=http://localhost:3000,https://localhost:3100 scripts/start-backend.sh --scripted
+
+   # Real agent (OPENAI_API_KEY in .env); add --db for Postgres
+   ONB_CORS_ORIGINS=http://localhost:3000,https://localhost:3100 scripts/start-backend.sh --db
+   ```
+
+   Check it with `curl http://localhost:8000/health`.
+2. Install and start the add-in dev server (serves `https://localhost:3100`, dev auth against `http://localhost:8000`):
+
+   ```bash
+   cd excel_plugin
+   pnpm install
+   npx office-addin-dev-certs install   # once: a trusted localhost certificate for desktop Excel
+   pnpm dev
+   ```
+
+3. Sideload `excel_plugin/manifest.dev.xml`:
+   - **Mac:** copy it to `~/Library/Containers/com.microsoft.Excel/Data/Documents/wef/`, restart Excel, then
+     Insert > My Add-ins > Developer Add-ins.
+   - **Windows:** share the folder holding the manifest, add it under File > Options > Trust Center > Trusted Add-in
+     Catalogs, restart Excel, then Insert > My Add-ins > Shared Folder.
+   - **Excel on the web:** Insert > Add-ins > Manage My Add-ins > Upload My Add-in.
+
+   The Home tab then shows **Open pane**.
+4. Open an Investran export (for example `tests/fixtures/affiliate/titled.xlsx` or `renamed.xlsx`; see
+   [Sample Affiliate files](#sample-affiliate-files)), open the pane, pick a sponsor and click **Onboard this workbook**.
+
+### Try the Copilot (optional)
+
+The live-sheet Copilot is off unless the server turns it on:
+
+```bash
+# Deterministic, no model
+ONB_CORS_ORIGINS=http://localhost:3000,https://localhost:3100 \
+  uv run python -m tests.e2e.serve_scripted --port 8000 --copilot
+
+# Live model
+ONB_COPILOT_ENABLED=true ONB_CORS_ORIGINS=http://localhost:3000,https://localhost:3100 scripts/start-backend.sh
+```
+
+With the flag off the pane shows "The copilot is turned off on this server." See `excel_plugin/README.md` for the
+scripted keywords (`propose write`, `overcap`, ...) and the `ONB_COPILOT_*` caps.
+
+### Test the add-in
+
+```bash
+cd excel_plugin
+pnpm test            # offline unit and UI tests (Office is faked)
+pnpm test:contract   # add-in client against real scripted API servers (needs uv and the string_matcher checkout)
+pnpm check           # typecheck, lint, tests, production build and bundle check: the pre-merge gate
+```
+
+The contract test starts its own servers on free ports (preferred 8765/8766), so it does not conflict with a backend
+on :8000. Manual verification in real Excel follows the checklist in `excel_plugin/README.md`.
+
 ## Sample Affiliate files
 
 Synthetic Investran exports for trying the agent are in `tests/fixtures/affiliate/`; the expected outcome of each is in
@@ -145,6 +213,7 @@ uv run pytest -q                        # offline: unit, golden, differential, c
 scripts/setup-docker.sh --check         # docker- and db-marked tests
 uv run pytest -q -m live                # live eval; needs OPENAI_API_KEY
 cd web && pnpm typecheck && pnpm e2e    # Playwright e2e against a scripted API
+cd excel_plugin && pnpm check           # Excel add-in checks; pnpm test:contract runs it against the scripted API
 ```
 
 Regenerate the Affiliate fixtures with `uv run python scripts/generate_fixtures.py`.
@@ -166,6 +235,7 @@ Regenerate the Affiliate fixtures with `uv run python scripts/generate_fixtures.
 | `src/onboarding_agent/` | Agents, LangGraph spine, tools, middleware, API and CLI surfaces |
 | `packages/onboarding_sdk/` | Deterministic accounting rules, findings, publish gate and rendering |
 | `web/` | Next.js workbench UI |
+| `excel_plugin/` | Excel task-pane add-in (Preact, Vite); see its README |
 | `sandbox/` | Sandbox image for the recipe engineer's code execution |
 | `tests/` | Unit, golden, differential, contract, e2e and live tests; fixtures |
 | `infra/` | Azure deployment (Bicep); see `infra/README.md` |
