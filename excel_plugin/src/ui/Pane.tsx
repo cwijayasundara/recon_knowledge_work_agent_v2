@@ -9,10 +9,12 @@ import type { WorkbookFile } from "../office/workbook";
 import { blockedReasons, canApprove, canChangeFindings, gateMessage, pendingGate } from "../state/gates";
 import { STALE_NOTICE, type RunStore } from "../state/store";
 import { BriefCard } from "./BriefCard";
+import { ChatPanel } from "./ChatPanel";
+import { CopilotPanel, type CopilotWriter } from "./CopilotPanel";
+import type { CopilotSession, CopilotSessionDeps } from "../copilot/session";
 import { FindingsGate } from "./FindingsGate";
 import { FindingsList } from "./FindingsList";
 import { GateMessage } from "./GateMessage";
-import { QuestionCard } from "./QuestionCard";
 import { ErrorBanner } from "./ErrorBanner";
 import { SignOff, type DownloadResult } from "./SignOff";
 import { ReviewPanel } from "./ReviewPanel";
@@ -31,13 +33,18 @@ export interface PaneProps {
   removeReview?: (signal: AbortSignal) => Promise<boolean>;
   /** How long Onboard waits for that removal (and Apply for its render); EXCEL_OP_TIMEOUT_MS unless a test shortens it. */
   excelOpTimeoutMs?: number;
+  /** How long the chat waits for a reply or an Apply verdict; VERDICT_TIMEOUT_MS unless a test shortens it. */
+  chatTimeoutMs?: number;
+  /** Test seams for the Copilot panel: its session factory and its Excel writer. */
+  copilotSession?: (deps: CopilotSessionDeps) => CopilotSession;
+  copilotWriter?: CopilotWriter;
 }
 
 function hostOf(base: string): string {
   try { return new URL(base).hostname; } catch { return base; }
 }
 
-export function Pane({ client, store, readFile, apiBase = config.apiBase, run = excelRun, download, removeReview, excelOpTimeoutMs = EXCEL_OP_TIMEOUT_MS }: PaneProps) {
+export function Pane({ client, store, readFile, apiBase = config.apiBase, run = excelRun, download, removeReview, excelOpTimeoutMs = EXCEL_OP_TIMEOUT_MS, chatTimeoutMs, copilotSession, copilotWriter }: PaneProps) {
   const state = useStore(store);
   const [sponsors, setSponsors] = useState<Sponsor[]>([]);
   // Kept apart from localError (upload errors): a Retry must not clear an upload error, nor an upload the sponsor error.
@@ -48,6 +55,19 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
   const [localError, setLocalError] = useState<{ message: string; requestId?: string } | null>(null);
 
   const [warning, setWarning] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const chatToggle = useRef<HTMLButtonElement>(null);
+  // Closing the panel returns focus to its toggle (opening moves it into the panel).
+  const toggleChat = () => {
+    if (chatOpen) chatToggle.current?.focus();
+    setChatOpen(!chatOpen);
+  };
+  const [copilotOpen, setCopilotOpen] = useState(false);
+  const copilotToggle = useRef<HTMLButtonElement>(null);
+  const toggleCopilot = () => {
+    if (copilotOpen) copilotToggle.current?.focus();
+    setCopilotOpen(!copilotOpen);
+  };
   const inFlight = useRef(false);
   // An Apply in flight re-renders the Review sheet after its refresh: no upload may start (and delete it) meanwhile.
   const [applying, setApplying] = useState(false);
@@ -164,16 +184,17 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
     }
   }
 
-  async function useSelected(field: string) {
-    if (!sheet || headerRow === undefined) return;
+  // Only stages the selected header in the card; the change is posted by its explicit "Apply change" click.
+  async function useSelected(): Promise<string | null> {
+    if (!sheet || headerRow === undefined) return null;
     const picked = await readSelectedColumn(run, sheet, headerRow);
-    if (!alive.current) return;
+    if (!alive.current) return null;
     if (!picked.ok) {
       setSelectionNote(picked.message);
-      return;
+      return null;
     }
     setSelectionNote(null);
-    void store.respond({ action: "change", changes: [{ kind: "set_column_binding", field, column: picked.header }] });
+    return picked.header;
   }
 
   // Each jump is isolated: a missing Review sheet must not stop the source jump, and nothing throws.
@@ -219,7 +240,19 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
   const running = state.runId !== null;
   return (
     <main class="pane">
-      <h1>Onboarding workbench</h1>
+      <header class="pane-header">
+        <h1>Onboarding workbench</h1>
+        <div class="pane-toggles">
+          {running ? (
+            <button ref={chatToggle} type="button" class="secondary" data-testid="chat-toggle" aria-expanded={chatOpen} aria-controls="chat-panel" onClick={toggleChat}>
+              Chat
+            </button>
+          ) : null}
+          <button ref={copilotToggle} type="button" class="secondary" data-testid="copilot-toggle" aria-expanded={copilotOpen} aria-controls="copilot-panel" onClick={toggleCopilot}>
+            Copilot
+          </button>
+        </div>
+      </header>
       {localError ? <ErrorBanner message={localError.message} requestId={localError.requestId} /> : null}
       {warning ? (
         <div class="banner banner-warning" role="status" data-testid="warning-banner">
@@ -252,6 +285,10 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
         {uploading ? "Uploading..." : running ? "Onboard again" : "Onboard this workbook"}
       </button>
       {running ? <Progress state={state} /> : null}
+      {/* Mounted for the whole run (collapsing only hides it), so a pending reply and the transcript survive. */}
+      {running ? <ChatPanel store={store} id="chat-panel" hidden={!chatOpen} timeoutMs={chatTimeoutMs} /> : null}
+      {/* Mounted for the pane's life, with or without a run: one copilot session per pane (a new run gets a new one). */}
+      <CopilotPanel client={client} run={run} store={store} id="copilot-panel" hidden={!copilotOpen} createSession={copilotSession} writer={copilotWriter} timeoutMs={chatTimeoutMs} />
       {running && state.snap?.brief && pendingGate(state.snap) === "brief" ? (
         <>
           <BriefCard
@@ -261,19 +298,12 @@ export function Pane({ client, store, readFile, apiBase = config.apiBase, run = 
             blockedReasons={blockedReasons(state.snap)}
             headers={state.snap.resolution?.headers}
             onShowColumn={sheet && headerRow !== undefined ? (column) => void showColumn(column) : undefined}
-            onUseSelected={sheet && headerRow !== undefined ? (field) => void useSelected(field) : undefined}
+            onUseSelected={sheet && headerRow !== undefined ? () => useSelected() : undefined}
             onApprove={() => void store.respond({ action: "approve" })}
+            onAnswer={(question_id, option) => void store.respond({ action: "answer", question_id, option })}
             onColumn={(field, column) => void store.respond({ action: "change", changes: [{ kind: "set_column_binding", field, column }] })}
           />
           {selectionNote ? <p class="note" role="status" data-testid="selection-note">{selectionNote}</p> : null}
-          {state.snap.brief.questions.map((q) => (
-            <QuestionCard
-              key={q.id}
-              question={q}
-              busy={state.busy}
-              onAnswer={(option) => void store.respond({ action: "answer", question_id: q.id, option })}
-            />
-          ))}
         </>
       ) : null}
       {running && state.snap && gate === "brief" ? <GateMessage message={gateMessage(state.snap)} /> : null}

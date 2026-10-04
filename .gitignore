@@ -19,3 +19,9 @@ eval_summary.md
 .playwright-mcp/
 vendor/
 *.tsbuildinfo
+
+# macOS / Office artifacts
+.DS_Store
+**/.DS_Store
+~$*
+**/~$*

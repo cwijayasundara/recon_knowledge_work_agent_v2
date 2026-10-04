@@ -48,17 +48,28 @@ function forget(): void {
   rendered = NOTHING_RENDERED();
 }
 
-/** The sheet named REVIEW_SHEET and whether the add-in created it; null when there is no such sheet. */
-async function findReviewSheet(ctx: Excel.RequestContext): Promise<{ ws: Excel.Worksheet; owned: boolean } | null> {
-  const found = ctx.workbook.worksheets.getItemOrNullObject(REVIEW_SHEET);
+/**
+ * The sheet called `name` (Excel matches sheet names case-insensitively) and whether it carries the add-in's
+ * worksheet-scoped marker `mark`; null when there is no such sheet.
+ */
+export async function findOwnedSheet(ctx: Excel.RequestContext, name: string, mark: string): Promise<{ ws: Excel.Worksheet; owned: boolean } | null> {
+  const found = ctx.workbook.worksheets.getItemOrNullObject(name);
   found.load("isNullObject,id");
   await ctx.sync();
   if (found.isNullObject) return null;
-  const mark = found.names.getItemOrNullObject(OWNER_MARK);
-  mark.load("isNullObject");
+  const marker = found.names.getItemOrNullObject(mark);
+  marker.load("isNullObject");
   await ctx.sync();
-  return { ws: found, owned: !mark.isNullObject };
+  return { ws: found, owned: !marker.isNullObject };
 }
+
+/** Marks a sheet the add-in just created as its own (see OWNER_MARK). */
+export function markOwned(ws: Excel.Worksheet, mark: string, comment: string): void {
+  const name = ws.names.add(mark, ws.getRange("A1"), comment);
+  name.visible = false; // hidden from Name Manager (ExcelApi 1.1), so it is not tidied away by accident
+}
+
+const findReviewSheet = (ctx: Excel.RequestContext) => findOwnedSheet(ctx, REVIEW_SHEET, OWNER_MARK);
 
 /**
  * Renders the grid into the add-in's own Review sheet; rejects with ReviewSheetConflict when the name is taken by a user
@@ -72,8 +83,7 @@ export function renderReview(run: ExcelRun, rows: GridRow[], signal?: AbortSigna
         let ws: Excel.Worksheet;
         if (existing === null) {
           ws = ctx.workbook.worksheets.add(REVIEW_SHEET);
-          const mark = ws.names.add(OWNER_MARK, ws.getRange("A1"), "Created by the onboarding add-in; the sheet is replaced on every render.");
-          mark.visible = false; // hidden from Name Manager (ExcelApi 1.1), so it is not tidied away by accident
+          markOwned(ws, OWNER_MARK, "Created by the onboarding add-in; the sheet is replaced on every render.");
           ws.load("id");
           await ctx.sync();
         } else if (!existing.owned) {

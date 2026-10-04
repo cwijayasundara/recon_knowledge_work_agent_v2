@@ -34,6 +34,8 @@ Key settings in `.env` (all prefixed `ONB_`, see `src/onboarding_agent/config.py
 | `ONB_OBJECT_ROOT` | `var/objects` | Where uploads and generated files are stored |
 | `ONB_SANDBOX_BACKEND` / `ONB_SANDBOX_IMAGE` | `docker` / `onb-sandbox` | Isolated sandbox for the recipe engineer |
 | `ONB_API_TOKEN` | empty | Optional bearer token for the API (the frontend script picks it up) |
+| `ONB_COPILOT_ENABLED` | `false` | Enables the Excel Copilot routes (`/copilot/*`); caps are the other `ONB_COPILOT_*` settings |
+| `ONB_COPILOT_MAX_CONCURRENT_STEPS` | `8` | Copilot steps running at once per API process; more get 503 |
 
 ## Run the platform locally
 

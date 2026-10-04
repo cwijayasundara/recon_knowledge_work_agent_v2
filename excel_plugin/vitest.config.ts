@@ -7,6 +7,6 @@ export default defineConfig({
     environment: "jsdom",
     include: ["tests/**/*.test.{ts,tsx}"],
     exclude: ["tests/contract/**"],
-    coverage: { provider: "v8", include: ["src/api/**", "src/state/**", "src/office/**"], thresholds: { lines: 85, functions: 85, branches: 75 } },
+    coverage: { provider: "v8", include: ["src/api/**", "src/state/**", "src/office/**", "src/ui/**", "src/copilot/**"], thresholds: { lines: 85, functions: 85, branches: 75 } },
   },
 });

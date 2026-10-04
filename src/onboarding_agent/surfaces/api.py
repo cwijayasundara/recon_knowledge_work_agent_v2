@@ -24,6 +24,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from ..assembly import Services, build_checkpointer, build_services
 from ..config import Settings
+from ..copilot.routes import register_copilot
 from ..graph.build import UploadRejected, Workbench, snapshot_defaults
 from ..graph.state import GateResponse, TypedChange
 from ..tools.changes import dry_run
@@ -105,6 +106,7 @@ def create_app(
         allow_origins=[o.strip() for o in settings.cors_origins.split(",") if o.strip()],
         allow_methods=["*"],
         allow_headers=["*"],
+        expose_headers=["Retry-After"],  # the pane backs off on a busy copilot (503)
     )
     app.state.workbench, app.state.hub, app.state.jobs = bench, hub, jobs
     for entry in filter(None, (e.strip() for e in settings.seed_sponsors.split(","))):
@@ -353,6 +355,14 @@ def create_app(
 
         return EventSourceResponse(stream(), ping=15)
 
+    register_copilot(
+        app,
+        settings=settings,
+        services=services,
+        actor_dep=actor,
+        run_snapshot=snapshot,
+        run_dry_run=lambda run_id, changes: dry_run(_context(run_id), changes),
+    )
     return app
 
 

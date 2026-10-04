@@ -19,3 +19,49 @@ button:disabled { opacity: .5; cursor: not-allowed; }
 .review { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
 .review h2 { font-size: 15px; margin: 0 0 6px; }
 .review button { margin-top: 6px; }
+button.primary { font-weight: 600; padding: 8px; margin: 4px 0 8px; }
+button.secondary { width: auto; background: transparent; color: var(--accent); border-color: var(--accent); font-size: 12px; padding: 3px 8px; }
+button.secondary:disabled { color: var(--muted); border-color: var(--line); }
+.brief-card h2 { font-size: 15px; margin: 12px 0 4px; }
+.brief-card h3 { font-size: 13px; margin: 10px 0 4px; }
+.needs-input { border-left: 4px solid var(--accent); padding-left: 8px; }
+.needs-input .options { display: flex; flex-direction: column; gap: 4px; }
+.bindings { list-style: none; padding: 0; margin: 0 0 4px; }
+.blocked { padding-left: 18px; margin: 0 0 6px; font-size: 12px; }
+details > summary { cursor: pointer; color: var(--accent); font-size: 12px; margin: 6px 0; }
+.override { border: 1px solid var(--line); border-radius: 4px; margin: 0 0 8px; padding: 6px 8px; display: flex; flex-direction: column; gap: 6px; }
+.override legend { font-weight: 600; padding: 0 4px; }
+.override-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.unapplied { border: 1px solid var(--accent); border-left-width: 4px; border-radius: 4px; padding: 4px 8px; margin: 0 0 8px; font-size: 12px; }
+.unapplied p { margin: 0 0 4px; }
+.pane-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 0 12px; }
+.pane-header h1 { margin: 0; }
+.chat { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.chat[hidden] { display: none; }
+.chat h2 { font-size: 15px; margin: 0; }
+.chat textarea { font: inherit; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--fg); resize: vertical; }
+.chat-log { display: flex; flex-direction: column; gap: 6px; max-height: 320px; overflow-y: auto; }
+.chat-msg { border-left: 3px solid var(--line); padding: 2px 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-agent { border-left-color: var(--accent); }
+.chat-line { display: block; white-space: pre-wrap; overflow-wrap: anywhere; }
+.chat-flag { color: var(--err); font-weight: 600; }
+.chat-proposal { border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin-top: 4px; }
+.chat-proposal h3 { font-size: 13px; margin: 0 0 4px; }
+.chat-proposal ul { padding-left: 18px; margin: 4px 0; }
+.pane-toggles { display: flex; gap: 6px; }
+.copilot-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+.copilot-error { border-left: 3px solid var(--err); padding-left: 8px; }
+.copilot-error strong { color: var(--err); }
+.copilot-separator { text-align: center; color: var(--muted); font-size: 12px; border-top: 1px dashed var(--line); padding-top: 4px; margin: 4px 0; }
+.copilot-working, .copilot-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.copilot-actions button { width: auto; flex: 1 1 auto; }
+.copilot-off { border: 1px dashed var(--muted); border-radius: 4px; padding: 6px 8px; }
+.copilot-off p { margin: 0 0 6px; }
+.copilot-read ul, .copilot-warnings { padding-left: 18px; margin: 4px 0; font-size: 12px; }
+.copilot-grid-wrap { overflow-x: auto; max-width: 100%; }
+.copilot-grid { border-collapse: collapse; min-width: 100%; table-layout: auto; font-size: 12px; margin: 4px 0; }
+.copilot-grid caption { text-align: left; color: var(--muted); }
+.copilot-grid td { border: 1px solid var(--line); padding: 2px 4px; vertical-align: top; min-width: 4em; max-width: 16em; white-space: pre-wrap; overflow-wrap: anywhere; }
+.copilot-before { color: var(--muted); }
+.copilot-confirm { border: 1px solid var(--err); border-left-width: 4px; border-radius: 4px; padding: 6px 8px; margin: 4px 0; }
+.copilot-confirm p { margin: 0 0 6px; }

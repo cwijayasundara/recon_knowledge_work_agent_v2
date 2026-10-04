@@ -18,6 +18,7 @@ This repository builds an **agentic onboarding workbench** that turns a sponsor'
 - **Mapping history is per sponsor.** Always call `attribute_mapper` with `tenant_id=<sponsor_id>`. Never write or read `tenant_id="*"`. Write history only after analyst confirmation.
 - **The sandbox is isolated.** The coding agent's `execute` runs only in the sandbox container: no secrets, no network, upload mounted read-only.
 - **Don't copy large chunks of `string_matcher_v1`.** Depend on `attribute_mapper` as a package. The Affiliate rules are ported deliberately (task S3) and proven equal by a differential test.
+- **Copilot raw-cell exception:** the Copilot `read_range` tool may return capped raw cell values and formulas from the user's own open workbook to the model (flag `ONB_COPILOT_ENABLED`, caps in `copilot_*`, addresses logged but never contents); run-bound tools and the onboarding agents still never return raw file rows.
 - **Keep the client generic.** Never write a real client, fund administrator or person's name into code, fixtures, prompts or docs. Use "sponsor", "fund administrator", `sponsor-a`.
 
 ## Commands

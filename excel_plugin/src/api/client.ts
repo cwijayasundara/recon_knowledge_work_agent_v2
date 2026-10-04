@@ -1,7 +1,10 @@
 import type { Auth } from "../auth/auth";
+import type { CopilotStart, StepBody, StepOut } from "../copilot/types";
 import type { GateBody, Impact, PreviewGrid, Snapshot, SourceGrid, TypedChange } from "./types";
 
 export class ApiError extends Error {
+  /** Seconds from a 503's Retry-After header, when present and numeric. */
+  retryAfterSeconds?: number;
   constructor(message: string, readonly status: number, readonly requestId: string) {
     super(message);
   }
@@ -38,6 +41,26 @@ export const AUTH_TIMEOUT_MS = 180_000;
 export const DOWNLOAD_TIMEOUT_MS = 120_000;
 /** The workbook upload sends a whole file. */
 export const UPLOAD_TIMEOUT_MS = 300_000;
+/** A copilot step waits for a model call, which can take far longer than a plain request. */
+export const COPILOT_STEP_TIMEOUT_MS = 120_000;
+
+export type CopilotErrorKind = "disabled" | "session_lost" | "busy" | "too_many" | "conflict" | "too_large" | "bad_request" | "timeout" | "other";
+
+/** How the copilot panel should treat a failed copilot call. */
+export function copilotErrorKind(e: unknown): CopilotErrorKind {
+  if (!(e instanceof ApiError)) return "other";
+  switch (e.status) {
+    case 0: return e instanceof RequestTimeout ? "timeout" : "other";
+    case 403: return "disabled";
+    case 404: return "session_lost";
+    case 503: return "busy";
+    case 429: return "too_many";
+    case 409: return "conflict";
+    case 413: return "too_large";
+    case 415: case 422: return "bad_request";
+    default: return "other";
+  }
+}
 
 export interface ClientOptions {
   baseUrl: string;
@@ -47,6 +70,7 @@ export interface ClientOptions {
   authTimeoutMs?: number;
   downloadTimeoutMs?: number;
   uploadTimeoutMs?: number;
+  copilotStepTimeoutMs?: number;
 }
 
 interface Deadline { signal: AbortSignal; dispose: () => void }
@@ -99,7 +123,7 @@ function untilAborted<T>(p: Promise<T>, signal: AbortSignal): Promise<T> {
   });
 }
 
-export function createClient({ baseUrl, auth, fetchImpl, requestTimeoutMs = REQUEST_TIMEOUT_MS, authTimeoutMs = AUTH_TIMEOUT_MS, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS }: ClientOptions) {
+export function createClient({ baseUrl, auth, fetchImpl, requestTimeoutMs = REQUEST_TIMEOUT_MS, authTimeoutMs = AUTH_TIMEOUT_MS, downloadTimeoutMs = DOWNLOAD_TIMEOUT_MS, uploadTimeoutMs = UPLOAD_TIMEOUT_MS, copilotStepTimeoutMs = COPILOT_STEP_TIMEOUT_MS }: ClientOptions) {
   const doFetch = fetchImpl ?? ((...a: Parameters<typeof fetch>) => fetch(...a));
 
   /** The auth headers, bounded by authTimeoutMs on their own: a sign-in prompt must not use up the request's bound. */
@@ -137,7 +161,10 @@ export function createClient({ baseUrl, auth, fetchImpl, requestTimeoutMs = REQU
       if (!res.ok) {
         let detail: unknown = res.statusText || `HTTP ${res.status}`;
         try { detail = ((await res.json()) as { detail?: unknown }).detail ?? detail; } catch { /* non-JSON body */ }
-        throw new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status, requestId);
+        const err = new ApiError(typeof detail === "string" ? detail : JSON.stringify(detail), res.status, requestId);
+        const wait = res.status === 503 ? res.headers.get("Retry-After") : null;
+        if (wait !== null && /^\d+$/.test(wait.trim())) err.retryAfterSeconds = Number(wait.trim());
+        throw err;
       }
       return await read(res);
     } catch (e) {
@@ -168,6 +195,17 @@ export function createClient({ baseUrl, auth, fetchImpl, requestTimeoutMs = REQU
     source: (id: string) => json<SourceGrid>(`/runs/${id}/grid?view=source&limit=500`),
     gate: (id: string, body: GateBody) => post<{ accepted: boolean }>(`/runs/${id}/gate`, body),
     dryRun: (id: string, changes: TypedChange[]) => post<Impact>(`/runs/${id}/dry-run`, { changes }),
+    copilotStart: (runId?: string) => post<CopilotStart>("/copilot/sessions", runId ? { run_id: runId } : {}),
+    copilotStep: (sessionId: string, body: StepBody) =>
+      json<StepOut>(`/copilot/sessions/${encodeURIComponent(sessionId)}/step`, { method: "POST", body: JSON.stringify(body) }, { "Content-Type": "application/json" }, copilotStepTimeoutMs),
+    /** An unknown or expired session (404) is already closed. */
+    async copilotClose(sessionId: string): Promise<void> {
+      try {
+        await call(`/copilot/sessions/${encodeURIComponent(sessionId)}`, { method: "DELETE" }, {}, requestTimeoutMs, async () => undefined);
+      } catch (e) {
+        if (!(e instanceof ApiError && e.status === 404)) throw e;
+      }
+    },
     artifact: (id: string, name: string) =>
       call(`/runs/${id}/artifacts/${encodeURIComponent(name)}`, {}, {}, downloadTimeoutMs, (res) => res.blob()),
     // The stream stays open for the whole run: only the caller's signal ends it, never a deadline.

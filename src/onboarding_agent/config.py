@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ModelProvider = Literal["openai", "azure_openai_v1"]
@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     supervisor_effort: Effort = "medium"
     recipe_engineer_effort: Effort = "medium"
     azure_openai_base_url: str | None = None
+
+    copilot_enabled: bool = False
+    copilot_model: str = "gpt-5.6-terra"
+    copilot_effort: Effort = "medium"
+    copilot_max_cells_per_call: int = Field(default=2000, ge=1)
+    copilot_max_cells_per_session: int = Field(default=20000, ge=1)
+    copilot_max_steps_per_turn: int = Field(default=8, ge=1)
+    copilot_max_write_cells: int = Field(default=2000, ge=1)
+    copilot_cell_char_limit: int = Field(default=500, ge=1)
+    copilot_session_ttl_s: int = Field(default=3600, ge=1)
+    copilot_max_sessions_per_actor: int = Field(default=5, ge=1)
+    copilot_session_max_lifetime_s: int = Field(default=43200, ge=1)
+    copilot_max_concurrent_steps: int = Field(default=8, ge=1)
 
     database_url: str | None = None
     object_root: str = "var/objects"

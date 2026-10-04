@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { entraAuth } from "../../src/auth/entra";
-import { anySignal, ApiError, AUTH_TIMEOUT_MESSAGE, AUTH_TIMEOUT_MS, AuthTimeout, createClient, DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, RequestTimeout, UPLOAD_TIMEOUT_MS } from "../../src/api/client";
+import { anySignal, ApiError, COPILOT_STEP_TIMEOUT_MS, copilotErrorKind, AUTH_TIMEOUT_MESSAGE, AUTH_TIMEOUT_MS, AuthTimeout, createClient, DOWNLOAD_TIMEOUT_MS, REQUEST_TIMEOUT_MS, RequestTimeout, UPLOAD_TIMEOUT_MS } from "../../src/api/client";
 
 const auth = { label: "test", headers: async () => ({ "X-Actor": "analyst" }) };
 const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
@@ -295,5 +295,98 @@ describe("anySignal", () => {
     } finally {
       Object.defineProperty(AbortSignal, "timeout", { value: original, configurable: true, writable: true });
     }
+  });
+});
+
+describe("copilot client", () => {
+  const mk = (f: unknown, extra: Record<string, number> = {}) => createClient({ baseUrl: "http://api", auth, fetchImpl: f as typeof fetch, ...extra });
+  const started = { session_id: "s/1", limits: { max_cells_per_call: 1, max_cells_per_session: 2, max_steps_per_turn: 3, max_write_cells: 4, cell_char_limit: 5 }, tools: ["find"], run_bound: false };
+  const call0 = (f: ReturnType<typeof vi.fn>) => f.mock.calls[0] as unknown as [string, RequestInit];
+
+  test("copilotStart posts JSON {} or {run_id} with auth and request id", async () => {
+    const f = vi.fn(async () => json(started));
+    expect(await mk(f).copilotStart()).toEqual(started);
+    const [url, init] = call0(f);
+    expect(url).toBe("http://api/copilot/sessions");
+    expect(init.method).toBe("POST");
+    expect(init.body).toBe("{}");
+    const h = init.headers as Record<string, string>;
+    expect(h["Content-Type"]).toBe("application/json");
+    expect(h["X-Actor"]).toBe("analyst");
+    expect(h["X-Request-Id"]).toBeTruthy();
+    await mk(f).copilotStart("run-ab12");
+    expect((f.mock.calls[1] as unknown as [string, RequestInit])[1].body).toBe('{"run_id":"run-ab12"}');
+  });
+
+  test("copilotStep posts the body to the encoded session path", async () => {
+    const out = { status: "final", tool_calls: [], text: "ok", proposed_changes: [], proposed_writes: [], notes: [] };
+    const f = vi.fn(async () => json(out));
+    expect(await mk(f).copilotStep("s/1", { tool_results: [{ call_id: "c1", ok: true, content: { sheets: [] } }] })).toEqual(out);
+    const [url, init] = call0(f);
+    expect(url).toBe("http://api/copilot/sessions/s%2F1/step");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ tool_results: [{ call_id: "c1", ok: true, content: { sheets: [] } }] });
+    expect((init.headers as Record<string, string>)["Content-Type"]).toBe("application/json");
+    await mk(f).copilotStep("s1", { user_message: "hi" });
+    expect(JSON.parse((f.mock.calls[1] as unknown as [string, RequestInit])[1].body as string)).toEqual({ user_message: "hi" });
+  });
+
+  test("copilotClose sends DELETE; resolves on 204 and on 404, rejects otherwise", async () => {
+    const f = vi.fn(async () => new Response(null, { status: 204 }));
+    await expect(mk(f).copilotClose("s/1")).resolves.toBeUndefined();
+    const [url, init] = call0(f);
+    expect(url).toBe("http://api/copilot/sessions/s%2F1");
+    expect(init.method).toBe("DELETE");
+    expect((init.headers as Record<string, string>)["X-Request-Id"]).toBeTruthy();
+    await expect(mk(vi.fn(async () => json({ detail: "not found" }, 404))).copilotClose("s")).resolves.toBeUndefined();
+    await expect(mk(vi.fn(async () => json({ detail: "busy" }, 409))).copilotClose("s")).rejects.toMatchObject({ status: 409 });
+  });
+
+  test("403 on start is an ApiError with status 403", async () => {
+    const err = await mk(vi.fn(async () => json({ detail: "copilot is disabled" }, 403))).copilotStart().catch((e) => e);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err.status).toBe(403);
+    expect(err.message).toBe("copilot is disabled");
+  });
+
+  test("copilotErrorKind maps every status", async () => {
+    const kinds: [number, string][] = [[403, "disabled"], [404, "session_lost"], [503, "busy"], [429, "too_many"], [409, "conflict"], [413, "too_large"], [415, "bad_request"], [422, "bad_request"], [500, "other"]];
+    for (const [status, kind] of kinds) {
+      const e = await mk(vi.fn(async () => json({ detail: "x" }, status))).copilotStep("s", { user_message: "m" }).catch((x) => x);
+      expect(copilotErrorKind(e)).toBe(kind);
+    }
+    expect(copilotErrorKind(new RequestTimeout(120, "r"))).toBe("timeout");
+    expect(copilotErrorKind(new ApiError("x", 0, "r"))).toBe("other");
+    expect(copilotErrorKind(new Error("x"))).toBe("other");
+    expect(copilotErrorKind(undefined)).toBe("other");
+  });
+
+  test("503 exposes Retry-After seconds; absent or garbage is tolerated", async () => {
+    const busy = (h: Record<string, string>) => mk(vi.fn(async () => new Response(JSON.stringify({ detail: "copilot is busy" }), { status: 503, headers: h }))).copilotStep("s", { user_message: "m" }).catch((e) => e);
+    expect((await busy({ "Retry-After": "5" })).retryAfterSeconds).toBe(5);
+    expect((await busy({})).retryAfterSeconds).toBeUndefined();
+    expect((await busy({ "Retry-After": "soon" })).retryAfterSeconds).toBeUndefined();
+    expect((await busy({ "Retry-After": "Wed, 21 Oct 2026 07:28:00 GMT" })).retryAfterSeconds).toBeUndefined();
+    const other = await mk(vi.fn(async () => new Response("{}", { status: 429, headers: { "Retry-After": "5" } }))).copilotStart().catch((e) => e);
+    expect(other.retryAfterSeconds).toBeUndefined();
+  });
+
+  test("a step uses the longer bound, start and close the normal one", async () => {
+    expect(COPILOT_STEP_TIMEOUT_MS).toBe(120_000);
+    const f = vi.fn((_u: string, init: RequestInit) => hangUntilAborted<Response>(init.signal));
+    const c = mk(f, { requestTimeoutMs: 20, copilotStepTimeoutMs: 80 });
+    const t0 = Date.now();
+    const start = await c.copilotStart().catch((e) => e);
+    const close = await c.copilotClose("s").catch((e) => e);
+    const mid = Date.now();
+    const step = await c.copilotStep("s", { user_message: "m" }).catch((e) => e);
+    const t1 = Date.now();
+    expect(start).toBeInstanceOf(RequestTimeout);
+    expect(close).toBeInstanceOf(RequestTimeout);
+    expect(step).toBeInstanceOf(RequestTimeout);
+    expect(step.message).toBe("Request timed out after 0.08 s");
+    expect(start.message).toBe("Request timed out after 0.02 s");
+    expect(mid - t0).toBeLessThan(75);
+    expect(t1 - mid).toBeGreaterThanOrEqual(70);
   });
 });

@@ -22,13 +22,16 @@ class Models:
     def __init__(self) -> None:
         self.supervisor = ScriptedChatModel()
         self.recipe_engineer = ScriptedChatModel()
+        self.copilot = ScriptedChatModel()
 
     def __call__(self, role: str) -> ScriptedChatModel:
+        if role == "copilot":
+            return self.copilot
         return self.supervisor if role == "supervisor" else self.recipe_engineer
 
     @property
     def calls(self) -> int:
-        return self.supervisor.calls + self.recipe_engineer.calls
+        return self.supervisor.calls + self.recipe_engineer.calls + self.copilot.calls
 
 
 def offline_services(tmp_path: Path, models: Models) -> Services:

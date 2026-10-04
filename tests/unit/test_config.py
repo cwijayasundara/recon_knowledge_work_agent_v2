@@ -77,3 +77,42 @@ def test_chat_model_azure_uses_token_provider(monkeypatch: pytest.MonkeyPatch) -
 def test_chat_model_rejects_unknown_role() -> None:
     with pytest.raises(ValueError, match="role"):
         chat_model("critic", Settings(_env_file=None))  # type: ignore[arg-type,call-arg]
+
+
+def test_copilot_defaults_are_conservative() -> None:
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.copilot_enabled is False
+    assert (s.copilot_max_cells_per_call, s.copilot_max_cells_per_session) == (2000, 20000)
+    assert (s.copilot_max_steps_per_turn, s.copilot_max_write_cells, s.copilot_cell_char_limit) == (8, 2000, 500)
+    assert (s.copilot_session_ttl_s, s.copilot_max_sessions_per_actor) == (3600, 5)
+    assert s.copilot_model == "gpt-5.6-terra"
+    assert s.copilot_session_max_lifetime_s == 43200
+    assert s.copilot_max_concurrent_steps == 8
+
+
+def test_copilot_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONB_COPILOT_ENABLED", "true")
+    monkeypatch.setenv("ONB_COPILOT_MAX_CELLS_PER_CALL", "50")
+    s = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert s.copilot_enabled is True and s.copilot_max_cells_per_call == 50
+
+
+def test_copilot_caps_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONB_COPILOT_MAX_CELLS_PER_CALL", "0")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_copilot_lifetime_must_be_positive(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONB_COPILOT_SESSION_MAX_LIFETIME_S", "0")
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_copilot_model_role() -> None:
+    from tests.support.services import Models
+
+    models = Models()
+    assert models("copilot") is models.copilot
+    assert models("supervisor") is models.supervisor
+    assert models("recipe_engineer") is models.recipe_engineer

@@ -9,7 +9,7 @@ from langchain_openai import ChatOpenAI
 
 from .config import Settings, get_settings
 
-Role = Literal["supervisor", "recipe_engineer"]
+Role = Literal["supervisor", "recipe_engineer", "copilot"]
 AZURE_SCOPE = "https://cognitiveservices.azure.com/.default"
 
 
@@ -25,6 +25,8 @@ def chat_model(role: Role, settings: Settings | None = None) -> ChatOpenAI:
         model, effort = settings.supervisor_model, settings.supervisor_effort
     elif role == "recipe_engineer":
         model, effort = settings.recipe_engineer_model, settings.recipe_engineer_effort
+    elif role == "copilot":
+        model, effort = settings.copilot_model, settings.copilot_effort
     else:
         raise ValueError(f"unknown model role {role!r}")
 

@@ -58,7 +58,7 @@ test("hover, focus and Use selected column never select a column; Show in sheet 
   const { log, selects } = setup({ sheet: "S1", columnIndex: 0, columnCount: 1 });
   await waitFor(() => expect(log).toContain("select S1!A3:C3"));
   const before = selects().length;
-  const li = screen.getByText("affiliate_id").closest("li")!;
+  const li = screen.getByTestId("binding-affiliate_id");
   fireEvent.mouseEnter(li);
   fireEvent.focusIn(li);
   fireEvent.mouseOver(screen.getByRole("button", { name: "Use selected column" }));
@@ -68,17 +68,30 @@ test("hover, focus and Use selected column never select a column; Show in sheet 
   await waitFor(() => expect(log).toContain("select S1!A1:A5"));
 });
 
-test("Use selected column reads the user's selection at click time and posts only then", async () => {
+test("Use selected column reads the user's selection at click time and stages it; only Apply change posts", async () => {
   const { fake, store, selects, log } = setup({ sheet: "S1", columnIndex: 0, columnCount: 1 });
   await waitFor(() => expect(log).toContain("select S1!A3:C3"));
   fake.userSelect({ sheet: "S1", columnIndex: 2, columnCount: 1 }); // the user picks column C
   expect(store.respond).not.toHaveBeenCalled();
   const before = selects().length;
   fireEvent.click(screen.getByRole("button", { name: "Use selected column" }));
-  await waitFor(() =>
-    expect(store.respond).toHaveBeenCalledWith({ action: "change", changes: [{ kind: "set_column_binding", field: "affiliate_id", column: "Fund Complex" }] }),
-  );
+  await screen.findByText('Not applied yet: Affiliate ID ← "Fund Complex"');
+  expect(store.respond).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Apply change" }));
+  expect(store.respond).toHaveBeenCalledTimes(1);
+  expect(store.respond).toHaveBeenCalledWith({ action: "change", changes: [{ kind: "set_column_binding", field: "affiliate_id", column: "Fund Complex" }] });
   expect(selects()).toHaveLength(before);
+});
+
+test("a selection with a duplicate header shows the refusal and stages nothing", async () => {
+  const dup = [["Title"], [], ["Affiliate ID", "Affiliate ID", "Fund Complex"], ["a", "b", "c"]];
+  const { fake, store, log } = setup({ sheet: "S1", columnIndex: 0, columnCount: 1 }, dup);
+  await waitFor(() => expect(log).toContain("select S1!A3:C3"));
+  fake.userSelect({ sheet: "S1", columnIndex: 1, columnCount: 1 });
+  fireEvent.click(screen.getByRole("button", { name: "Use selected column" }));
+  expect((await screen.findByTestId("selection-note")).textContent).toContain('Header "Affiliate ID" appears more than once');
+  expect((screen.getByRole("button", { name: "Apply change" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(store.respond).not.toHaveBeenCalled();
 });
 
 test("a multi-column selection shows a message and posts nothing", async () => {
