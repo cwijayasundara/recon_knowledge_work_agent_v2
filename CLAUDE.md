@@ -40,6 +40,9 @@ cd web && pnpm e2e                  # Playwright e2e: starts a scripted API (no 
 uv run python -m tests.e2e.serve_scripted --port 8000   # offline demo API driven by the fixture agent
 scripts/vendor_matcher.sh           # build the attribute_mapper wheel for container images
 uv run python scripts/generate_fixtures.py              # regenerate tests/fixtures/affiliate (deterministic)
+cd excel_plugin && pnpm check        # Excel add-in: typecheck, lint, tests, production build + bundle check
+cd excel_plugin && pnpm test:contract  # add-in client against the scripted API (needs uv, STRING_MATCHER_PATH)
+cd excel_plugin && pnpm dev          # add-in dev server on https://localhost:3100 (sideload manifest.dev.xml)
 ```
 
 If imports of `attribute_mapper`, `onboarding_sdk` or `onboarding_agent` fail outside pytest on macOS, the venv's

@@ -1,0 +1,29 @@
+# Ready-to-paste job for the repo's CI workflow (NOT wired yet: .github/workflows/ci.yml is shared and owned by the
+# repo owner). Paste under `jobs:`. The contract test needs uv and the string matcher checkout, so it is not here.
+excel-plugin:
+  runs-on: ubuntu-latest
+  defaults:
+    run:
+      working-directory: excel_plugin
+  steps:
+    - uses: actions/checkout@v4
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: excel_plugin/pnpm-lock.yaml
+    - run: pnpm install --frozen-lockfile
+    - run: pnpm check # typecheck, lint, tests, production build into a temp dir + bundle check
+    - run: pnpm vitest run --coverage
+    - run: pnpm audit --prod --audit-level high
+    - name: Validate the production manifest (placeholder values)
+      run: pnpm manifest:validate
+      env:
+        ADDIN_HOST: https://addin.example.com
+        ADDIN_ID: 00000000-0000-4000-8000-000000000001
+        ADDIN_VERSION: 1.0.0.0
+        ADDIN_CLIENT_ID: 00000000-0000-4000-8000-000000000002
+        ADDIN_API_RESOURCE: api://addin.example.com/00000000-0000-4000-8000-000000000002
