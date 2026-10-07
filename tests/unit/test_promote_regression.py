@@ -142,19 +142,17 @@ def test_promoting_the_same_store_twice_is_byte_identical(tmp_path: Path) -> Non
     assert AT.encode() not in first and LATER_AT.encode() not in second
 
 
-def test_twin_repins_the_case_and_warns(tmp_path: Path, capsys: Any) -> None:
+def test_rejects_an_explicit_twin_that_hashes_differently(tmp_path: Path, capsys: Any) -> None:
     script = _load_script()
     stores = _seed(tmp_path)
     twin = tmp_path / "twin.csv"
     twin.write_bytes(b"affiliate_id,affiliate_name\nA1,Alpha-2\n")
     rc = _promote(script, stores, tmp_path, "--twin", str(twin), "--i-confirm-synthetic")
-    assert rc == 0
+    assert rc == 1
     err = capsys.readouterr().err
-    assert "WARNING" in err and "csv_sha256" in err and "replay" in err
-    case = RegressionCase.model_validate(json.loads(_case_file(tmp_path, RUN).read_bytes()))
-    assert case.upload.sha256 == _digest(twin.read_bytes())
-    assert _twin_file(tmp_path, RUN).read_bytes() == twin.read_bytes()
-    assert case.outcome.csv_sha256 == CSV_SHA  # stale until the replay re-verifies
+    assert "case pins" in err
+    assert not _case_file(tmp_path, RUN).exists()
+    assert not _twin_file(tmp_path, RUN).exists()
 
 
 def test_twin_with_unchanged_bytes_does_not_warn(tmp_path: Path, capsys: Any) -> None:

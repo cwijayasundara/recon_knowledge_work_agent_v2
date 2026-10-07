@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "run_id": "run-bf5bff55ddcb",
+  "sponsor_id": "sponsor-a",
+  "entity": "affiliate",
+  "fingerprint": "4b49eee1ac9ff9b8201a9d01121d9fa3261164f8379fd598b815b4b13cd72a89",
+  "fixture": "two_sheets.xlsx",
+  "upload": {
+    "sha256": "c61f62ec3cb0eb3d438175fb9a9f1c284471fe0bc26ba8684a4f1da1305f9f3a"
+  },
+  "outcome": {
+    "status": "locked",
+    "bindings": {
+      "affiliate_id": "Affiliate ID",
+      "affiliate_name": "Affiliate Name"
+    },
+    "csv_sha256": "d0ada1e8f7bb3e4a3f1545901e74cdb0c337585bdb3e17e070b51505e1ba84f5",
+    "finding_codes": []
+  },
+  "steps": [
+    {
+      "seq": 1,
+      "kind": "brief.answer",
+      "payload": {
+        "action": "answer",
+        "actor": "analyst@sponsor-a",
+        "question_id": "q1",
+        "option": "Affiliates",
+        "changes": [],
+        "text": null,
+        "reason": null
+      },
+      "actor": "analyst@sponsor-a",
+      "at": ""
+    }
+  ]
+}

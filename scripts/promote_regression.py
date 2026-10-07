@@ -6,9 +6,8 @@ case to ``tests/regression/cases/<name>.json`` and the upload bytes (the
 "synthetic twin") to ``tests/fixtures/regression/<name>``. The twin must hash
 to the case's ``upload.sha256``; production uploads are never committed, so a
 twin of a real upload must be regenerated with the
-``scripts/generate_fixtures.py`` patterns and passed via ``--twin`` (which
-re-pins ``upload.sha256`` and invalidates ``outcome.csv_sha256`` until the case
-is replayed).
+``scripts/generate_fixtures.py`` patterns, run through the workbench to capture
+its own outcome, and passed via ``--twin`` with that synthetic run's case.
 
 Offline and model-free: stores come from the settings' object root (Postgres
 run store when ``ONB_DATABASE_URL`` is set), never from a live run.
@@ -135,21 +134,13 @@ def promote(
     twin_dest = repo_root / TWINS_DIR / name
     print(_summary(case, twin_source, twin_sha, case_dest, twin_dest))
 
-    if twin is None and twin_sha != case.upload.sha256:
+    if twin_sha != case.upload.sha256:
         print(
-            f"error: the run's upload hashes to {twin_sha}, but the case pins {case.upload.sha256}; "
-            "refusing to commit bytes the case does not vouch for",
+            f"error: the upload hashes to {twin_sha}, but the case pins {case.upload.sha256}; "
+            "capture a new case from the synthetic twin before promoting it",
             file=sys.stderr,
         )
         return 1
-    if twin_sha != case.upload.sha256:
-        print(
-            f"\nWARNING: --twin re-pins upload.sha256 to {twin_sha}. outcome.csv_sha256 still belongs to the\n"
-            "old upload's output, so this case WILL FAIL until the replay runner has re-verified it. Only\n"
-            "synthetic twins (generated with the scripts/generate_fixtures.py patterns) may be committed.",
-            file=sys.stderr,
-        )
-
     if not confirmed:
         print(
             "\nrefusing to write: promoting commits the twin into the repo; re-run with "

@@ -10,7 +10,7 @@ task has an **acceptance check** that must pass before moving on. Companion: `do
 |---|---|
 | Gate behaviour | Unchanged. The brief gate interrupts on the fast path; the analyst still approves. `answer`/`instruct`/`change` at the gate fall back to `scope` as today |
 | History writes | Unchanged. Only `_approve_brief` confirms bindings (`resolver.confirm`) |
-| Fast-path trigger | Conservative and configurable: exactly one list-like sheet; name resolves `matched` with score ≥ `ONB_FASTPATH_MIN_SCORE`; ID resolves `matched` or `unmapped` (→ derived); standard recipe passes `recipes.check` |
+| Fast-path trigger | Conservative and configurable: exactly one qualifying affiliate sheet among list-like sheets (a lone sheet is resolved even when header-only); name resolves `matched` with score ≥ `ONB_FASTPATH_MIN_SCORE`; ID resolves `matched` or `unmapped` (→ derived); standard recipe passes `recipes.check` |
 | Fallback | Any unmet condition → `scope` with the supervisor, reusing the spine's resolution where possible |
 | Routes | No new `Route` values. Fast-path routes come from the resolver; `affiliate_id=None` keeps route `None` |
 | Regression cases | Captured at `finalize` into the object store. Only **synthetic twins** of uploads are ever committed to `tests/`; cases carry codes/counts, never cell values |
@@ -31,9 +31,12 @@ task has an **acceptance check** that must pass before moving on. Companion: `do
 ## 2. Phase F — the fast path
 
 ### F1. Resolve the candidate sheet in the spine (code)
-- `graph/nodes.py::resolve`: on the non-replay path, pick the **candidate sheet** = the single sheet with
-  `looks_like_list ≥ ONB_FASTPATH_MIN_LIST` (config; none or several → no candidate). Call
-  `ctx.resolver.resolve(sponsor_id, headers, run_id=ctx.run_id)` for its profiled header row and store the
+- `graph/nodes.py::resolve`: on the non-replay path, resolve sheets with
+  `looks_like_list ≥ ONB_FASTPATH_MIN_LIST` (or the lone sheet, including header-only input). Pick the
+  **candidate sheet** only when exactly one resolution meets the name/ID trigger conditions. This
+  fixture-driven refinement ignores the list-like Notes sheet in `titled.xlsx`; zero or several
+  qualifying affiliate sheets still require scope. Call
+  `ctx.resolver.resolve(sponsor_id, headers, run_id=ctx.run_id)` for each profiled header row and store the
   `ResolutionSet` in `ctx.resolution` plus a summary in state.
 - The supervisor's `resolve_columns` tool keeps its behaviour (it may re-resolve the same sheet; identical
   inputs give identical results).
@@ -107,7 +110,8 @@ task has an **acceptance check** that must pass before moving on. Companion: `do
   of the upload into `tests/fixtures/regression/`. Refuses to write unless `--i-confirm-synthetic` is
   passed; prints a review summary (case steps, fingerprint, outcome) first.
 - The twin must hash to the case's `upload.sha256` (the case pins committed bytes; production uploads are
-  never committed — regenerate with `scripts/generate_fixtures.py` patterns instead).
+  never committed — regenerate with `scripts/generate_fixtures.py` patterns instead, run the synthetic
+  twin through the workbench with the reviewed corrections, and promote that new captured case).
 - **Acceptance:** script tests in `tests/unit` with a tmp object store: refusal without the flag, round-trip
   with it, mismatched twin sha rejected.
 

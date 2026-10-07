@@ -3,7 +3,9 @@
 ``derive_case`` reads a run's decision log and final snapshot and returns a
 versioned case dict, or None when there is nothing to replay. Steps copy the
 decision payloads verbatim — typed changes, question answers and instruction
-text only, never cell values — so a case is safe to promote into the repo.
+text, without copying source rows. Analyst text and override values can still
+be sensitive: only cases recaptured on reviewed synthetic inputs may be
+promoted into the repo.
 """
 
 from __future__ import annotations

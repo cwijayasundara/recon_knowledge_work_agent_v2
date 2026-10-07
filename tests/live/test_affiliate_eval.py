@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import os
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from onboarding_agent.graph.build import Workbench
 from onboarding_agent.persistence.memory import memory_stores
 from tests.conftest import FIXTURE_DIR, REPO_ROOT
 from tests.golden.test_affiliate_golden import _csv_bytes
+from tests.support.analyst import drive_gates
 from tests.support.pipeline import expected
 
 pytestmark = pytest.mark.live
@@ -42,51 +44,60 @@ ANALYST = "eval-analyst"
 MAX_STEPS = 12
 OUT = REPO_ROOT / "eval_results.jsonl"
 EVAL_MODEL = "gpt-5.6-luna"
+BASELINE_MODEL_CALLS = 96
+FASTPATH_FIXTURES = {"clean.csv", "edge.csv", "empty.csv", "extra_columns.csv", "titled.xlsx", "ids_missing.csv"}
 
 
 def _analyst(bench: Workbench, run_id: str, spec: dict[str, Any], metrics: dict[str, Any]) -> dict[str, Any]:
-    snap = bench.snapshot(run_id)
-    for _ in range(MAX_STEPS):
-        pending = snap.get("pending")
-        if pending is None:
-            return snap
-        gate = pending["gate"]
+    def decide(snapshot: dict[str, Any]) -> dict[str, Any]:
+        gate = snapshot["pending"]["gate"]
         if gate == "brief":
-            brief = snap.get("brief") or {}
+            brief = snapshot.get("brief") or {}
             questions = brief.get("questions", [])
             metrics["questions"] += len(questions)
             if questions:
-                q = questions[0]
-                answer = spec.get("answers", {}).get(q.get("target"), next(iter(spec["bindings"].values())))
-                option = answer if answer in q["options"] else q["options"][0]
-                snap = bench.respond(
-                    run_id, {"action": "answer", "actor": ANALYST, "question_id": q["id"], "option": option}
-                )
-                continue
-            got = {b["field"]: b["column"] for b in brief.get("bindings", [])}
+                question = questions[0]
+                answer = spec.get("answers", {}).get(question.get("target"), next(iter(spec["bindings"].values())))
+                option = answer if answer in question["options"] else question["options"][0]
+                return {"action": "answer", "actor": ANALYST, "question_id": question["id"], "option": option}
+            got = {binding["field"]: binding["column"] for binding in brief.get("bindings", [])}
             if got != spec["bindings"]:
                 metrics["corrections"] += 1
-                changes = [{"kind": "set_column_binding", "field": f, "column": c} for f, c in spec["bindings"].items()]
-                snap = bench.respond(run_id, {"action": "change", "actor": ANALYST, "changes": changes})
-                continue
-            snap = bench.respond(run_id, {"action": "approve", "actor": ANALYST})
-        elif gate == "findings":
-            findings = (snap.get("result") or {}).get("findings", [])
-            if spec.get("fixes") and any(f["severity"] == "error" for f in findings):
-                snap = bench.respond(run_id, {"action": "change", "actor": ANALYST, "changes": spec["fixes"]})
-                continue
+                changes = [
+                    {"kind": "set_column_binding", "field": field, "column": column}
+                    for field, column in spec["bindings"].items()
+                ]
+                return {"action": "change", "actor": ANALYST, "changes": changes}
+            return {"action": "approve", "actor": ANALYST}
+        if gate == "findings":
+            findings = (snapshot.get("result") or {}).get("findings", [])
+            if spec.get("fixes") and any(finding["severity"] == "error" for finding in findings):
+                return {"action": "change", "actor": ANALYST, "changes": spec["fixes"]}
             acks = [
-                {"kind": "acknowledge_finding", "code": f["code"], "row": f["row"]}
-                for f in findings
-                if f["requires_ack"] and not f["acknowledged"]
+                {"kind": "acknowledge_finding", "code": finding["code"], "row": finding["row"]}
+                for finding in findings
+                if finding["requires_ack"] and not finding["acknowledged"]
             ]
             if acks:
-                snap = bench.respond(run_id, {"action": "change", "actor": ANALYST, "changes": acks})
-                continue
-            snap = bench.respond(run_id, {"action": "approve", "actor": ANALYST})
-        else:
-            snap = bench.respond(run_id, {"action": "approve", "actor": ANALYST})
-    return snap
+                return {"action": "change", "actor": ANALYST, "changes": acks}
+        return {"action": "approve", "actor": ANALYST}
+
+    return drive_gates(bench, run_id, decide, max_steps=MAX_STEPS)
+
+
+def _assert_eval_acceptance(results: list[dict[str, Any]]) -> None:
+    assert [r["fixture"] for r in results] == ORDER and all(r["passed"] for r in results), (
+        f"all nine fixtures must pass: {results}"
+    )
+    assert all(r["model_calls"] == 0 for r in results if r["fixture"] in FASTPATH_FIXTURES), (
+        f"fast-path fixtures must use zero agent model calls: {results}"
+    )
+    assert sum(r["model_calls"] for r in results) <= BASELINE_MODEL_CALLS * 0.6, (
+        f"agent model calls must fall by at least 40% from baseline {BASELINE_MODEL_CALLS}: {results}"
+    )
+    assert all(r["questions"] <= 2 for r in results), results
+    returning = next(r for r in results if r["fixture"] == "returning_sponsor.xlsx")
+    assert returning["replay"] and returning["model_calls"] == 0, returning
 
 
 def test_affiliate_eval(tmp_path: Path) -> None:
@@ -154,9 +165,17 @@ def test_affiliate_eval(tmp_path: Path) -> None:
         f"| {r['fixture']} | {'✓' if r['passed'] else '✗'} | {r['questions']} | {r['corrections']} | {r['model_calls']} | {r['wall_s']} |"
         for r in results
     ]
-    (REPO_ROOT / "eval_summary.md").write_text("\n".join(lines) + "\n")
+    total_calls = sum(r["model_calls"] for r in results)
+    lines += [
+        "",
+        f"Passed: {sum(r['passed'] for r in results)}/{len(ORDER)}. "
+        f"Agent model calls: {BASELINE_MODEL_CALLS} → {total_calls} "
+        f"({(1 - total_calls / BASELINE_MODEL_CALLS):.1%} reduction).",
+        "Matcher-internal LLM calls are not counted in ctx.model_calls.",
+    ]
+    summary = REPO_ROOT / "eval_summary.md"
+    # Retain the scope-only baseline and previous measurements across reruns.
+    with summary.open("a") as handle:
+        handle.write(f"\n## Evaluation {datetime.now(UTC).isoformat()}\n\n" + "\n".join(lines) + "\n")
 
-    assert sum(r["passed"] for r in results) >= 8, results
-    assert all(r["questions"] <= 2 for r in results), results
-    returning = next(r for r in results if r["fixture"] == "returning_sponsor.xlsx")
-    assert returning["replay"] and returning["model_calls"] == 0, returning
+    _assert_eval_acceptance(results)

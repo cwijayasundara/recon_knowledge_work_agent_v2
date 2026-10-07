@@ -47,7 +47,16 @@ def _conversation(messages: list[BaseMessage]) -> tuple[str, str, str, list[Tool
 def _scope(name: str, done: int, text: str) -> AIMessage:
     spec = expected(name)
     b = spec["bindings"]
-    answered = "The analyst has answered" in text
+    sheet = spec["sheet"]
+    marker = "The analyst has answered or instructed (apply these, ask nothing already answered):"
+    inputs = json.loads(text.partition(marker)[2].strip()) if marker in text else []
+    answers = [entry for entry in inputs if entry.get("type") == "answer"]
+    answered = bool(answers)
+    if name == "two_sheets.xlsx" and answered:
+        answer = answers[-1]
+        assert answer.get("question_id") == "q1", f"unknown sheet question: {answer.get('question_id')}"
+        sheet = answer.get("option")
+        assert sheet in ("Affiliates", "Affiliates (old)"), f"unknown sheet answer: {sheet}"
     if spec.get("questions") and not answered and name == "two_sheets.xlsx":
         plan = [
             tools(call("profile_upload")),
@@ -71,19 +80,21 @@ def _scope(name: str, done: int, text: str) -> AIMessage:
             say("One question for the analyst."),
         ]
     else:
+        brief = brief_for(name)
+        brief["source"]["sheet"] = sheet
         plan = [
             tools(call("profile_upload"), call("recall_recipe")),
-            tools(call("resolve_columns", sheet=spec["sheet"], header_row=spec["header_row"])),
+            tools(call("resolve_columns", sheet=sheet, header_row=spec["header_row"])),
             tools(
                 call(
                     "write_standard_recipe",
-                    sheet=spec["sheet"],
+                    sheet=sheet,
                     header_row=spec["header_row"],
                     affiliate_id=b["affiliate_id"],
                     affiliate_name=b["affiliate_name"],
                 )
             ),
-            tools(call("submit_brief", brief=brief_for(name))),
+            tools(call("submit_brief", brief=brief)),
             say("Brief submitted."),
         ]
     return plan[min(done, len(plan) - 1)]

@@ -11,7 +11,23 @@ close the gap. Sources that shaped it:
   compounding loop that captures corrections and folds them back; one shared agent that improves because
   everyone invests in it; infra primitives (sandbox, memory, sessions) bought, not built.
 
-Companion: `docs/fast-path-regression-plan.md` is the detailed implementation plan for K1 + K2.
+Companion: `docs/fast-path-regression-plan.md` is the detailed implementation plan for K1 + K2; the eval
+entry point and correction-to-case workflow are documented in `tests/live/README.md`.
+
+## Implementation status
+
+The `fastpath-regression` branch implements K1 and K2 via
+`docs/fast-path-regression-plan.md`. K3–K9 remain subsequent roadmap work.
+
+| Item | Status | Evidence |
+|---|---|---|
+| K1 fast path | Implemented | `tests/unit/test_fastpath_*.py`, `tests/contract/test_fastpath.py`; six fixtures finish with zero agent calls and golden output parity |
+| K1 live acceptance | Verified | `docs/fast-path-evaluation.md`; eval now requires 9/9 passes and ≥40% fewer calls, retaining before/after measurements |
+| K2 capture + promotion | Implemented | `tests/unit/test_regression_capture.py`, `tests/contract/test_regression_capture.py`, `tests/unit/test_promote_regression.py` |
+| K2 offline replay + corpus | Implemented | `tests/regression/test_cases.py`; synthetic sheet-answer and ID-change cases, full capture → promotion → replay, and deliberately broken decisions |
+| K3 identity + roles | Pending | Existing optional Easy Auth identity forwarding does not enforce analyst/approver roles |
+| K4–K6 curation, wiki, intake | Pending | Current sponsor notes/history remain the starting point |
+| K7–K9 second entity, shared copilot runtime, dashboard | Pending | Affiliate remains the implemented entity; Copilot remains a separate runtime |
 
 ## Where we already match the references
 
@@ -33,8 +49,11 @@ code when the upload is unambiguous; keep the supervisor summonable at the gate.
 when a reporting run went 18 min → 85 s.
 
 - Files: `graph/nodes.py` (resolve routing), new `graph/fastpath.py`, `config.py`.
-- Trigger: no recall; exactly one list-like sheet; name resolves `matched` (score ≥ threshold);
+- Trigger: no usable recall; exactly one qualifying affiliate sheet; name resolves `matched` (score ≥ threshold);
   ID resolves `matched` or `unmapped` (→ derive); standard recipe passes its check.
+- Candidate refinement: resolve list-like sheets and require exactly one to qualify as an affiliate list.
+  This excludes the Notes sheet in `titled.xlsx`; a lone sheet is also resolved when header-only
+  (`empty.csv` scores zero for lack of data rows). Two qualifying sheets still require the supervisor.
 - The brief gate still interrupts. `answer`/`instruct`/`change` fall back to `scope` unchanged.
 - Accept: `clean.csv`, `extra_columns.csv`, `titled.xlsx`, `edge.csv`, `ids_missing.csv`, `empty.csv`
   finish with **0 agent model calls**, byte-identical outputs; `two_sheets.xlsx` and `renamed.xlsx`

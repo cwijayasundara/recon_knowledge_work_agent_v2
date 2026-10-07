@@ -1,0 +1,99 @@
+{
+  "version": 1,
+  "run_id": "run-e22755357746",
+  "sponsor_id": "sponsor-a",
+  "entity": "affiliate",
+  "fingerprint": "44b4f7a428dbf9ca23a57a6d5938563c426aeb687c5a5a1b7a0d820247d17478",
+  "fixture": "edge.csv",
+  "upload": {
+    "sha256": "7d49dd714c7286385d776cb1188233a8ddc224488c0117667c2323886896298b"
+  },
+  "outcome": {
+    "status": "locked",
+    "bindings": {
+      "affiliate_id": "Affiliate ID",
+      "affiliate_name": "Affiliate Name"
+    },
+    "csv_sha256": "679eff67007804d9483561f8700cfeae1f199a42908948f5501c207d6b0af9ba",
+    "finding_codes": [
+      "AFF_INFO_ROW_EXCLUDED",
+      "AFF_WARN_ITEM_ID_CHARS_STRIPPED",
+      "AFF_WARN_ITEM_ID_DERIVED",
+      "AFF_WARN_NAME_TRUNCATED"
+    ]
+  },
+  "steps": [
+    {
+      "seq": 2,
+      "kind": "findings.change",
+      "payload": {
+        "action": "change",
+        "actor": "analyst@sponsor-a",
+        "question_id": null,
+        "option": null,
+        "changes": [
+          {
+            "kind": "exclude_row",
+            "row": 1,
+            "reason": "blank row"
+          },
+          {
+            "kind": "override_item_id",
+            "row": 2,
+            "value": "AFF_9999"
+          },
+          {
+            "kind": "override_item_id",
+            "row": 4,
+            "value": "AFF_9011"
+          },
+          {
+            "kind": "override_item_id",
+            "row": 6,
+            "value": "CASCADE_EMP_COINV_BETA"
+          }
+        ],
+        "text": null,
+        "reason": null
+      },
+      "actor": "analyst@sponsor-a",
+      "at": ""
+    },
+    {
+      "seq": 3,
+      "kind": "findings.change",
+      "payload": {
+        "action": "change",
+        "actor": "analyst@sponsor-a",
+        "question_id": null,
+        "option": null,
+        "changes": [
+          {
+            "kind": "acknowledge_finding",
+            "code": "AFF_WARN_ITEM_ID_DERIVED",
+            "row": 5
+          },
+          {
+            "kind": "acknowledge_finding",
+            "code": "AFF_WARN_ITEM_ID_DERIVED",
+            "row": 7
+          },
+          {
+            "kind": "acknowledge_finding",
+            "code": "AFF_WARN_ITEM_ID_CHARS_STRIPPED",
+            "row": 7
+          },
+          {
+            "kind": "acknowledge_finding",
+            "code": "AFF_WARN_NAME_TRUNCATED",
+            "row": 8
+          }
+        ],
+        "text": null,
+        "reason": null
+      },
+      "actor": "analyst@sponsor-a",
+      "at": ""
+    }
+  ]
+}
