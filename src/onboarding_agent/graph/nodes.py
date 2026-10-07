@@ -57,14 +57,32 @@ def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def _candidate_sheet(prof: sdk_profile.WorkbookProfile, min_list: float) -> tuple[str, int] | None:
-    """The single list-like sheet to resolve in code, or None (zero or several)."""
-    list_like = [s for s in prof.sheets if s.header_row is not None and s.looks_like_list >= min_list]
-    if len(list_like) != 1:
-        return None
-    header_row = list_like[0].header_row
-    assert header_row is not None  # filtered above
-    return (list_like[0].name, header_row)
+def _candidate_sheets(prof: sdk_profile.WorkbookProfile, min_list: float) -> list[tuple[str, int]]:
+    """Sheets worth resolving for the fast path, in profile order.
+
+    Several profiled sheets: the list-like ones — list-ness bounds the
+    resolver's work and qualification decides. A lone profiled sheet is
+    resolved whatever its list score: there is nothing to choose between,
+    and a header-only CSV scores 0 for want of data rows.
+    """
+    profiled = [s for s in prof.sheets if s.header_row is not None]
+    chosen = [s for s in profiled if s.looks_like_list >= min_list] or (profiled if len(profiled) == 1 else [])
+    out = []
+    for sheet in chosen:
+        assert sheet.header_row is not None  # filtered above
+        out.append((sheet.name, sheet.header_row))
+    return out
+
+
+def _qualifies(resolution: ResolutionSet, min_score: float) -> bool:
+    """A sheet qualifies when its name resolves confidently and its ID is matched or absent."""
+    name, ident = resolution.fields["affiliate_name"], resolution.fields["affiliate_id"]
+    return (
+        name.decision == "matched"
+        and name.score is not None
+        and name.score >= min_score
+        and ident.decision in ("matched", "unmapped")
+    )
 
 
 def _resolution_summary(sheet: str, header_row: int, resolution: ResolutionSet) -> dict[str, Any]:
@@ -247,32 +265,47 @@ class Spine:
     def _resolve_candidate(self, state: SpineState) -> State:
         """Fast path step 1: resolve the candidate sheet in code, without a model.
 
-        The candidate is the single list-like sheet of the upload; zero or
-        several list-like sheets means no candidate and nothing is resolved.
-        The summary lands in state so the brief draft and tests can read what
-        the spine resolved; the supervisor's resolve_columns tool reuses the
-        ResolutionSet for the same layout instead of resolving twice.
+        Every candidate sheet is resolved at its profiled header row; a sheet
+        qualifies when its name field matches at or above the score threshold
+        and its ID field is matched or absent. Exactly one qualifying sheet is
+        the candidate: its ResolutionSet is cached on the context and a summary
+        lands in state, so the brief draft and tests can read what the spine
+        resolved; the supervisor's resolve_columns tool reuses the cached set
+        for the same layout instead of resolving twice.
+
+        With none or several qualifying sheets there is no candidate: the
+        single-slot cache cannot say which sheet it holds, so it is dropped
+        and this returns {} — the node returns exactly {"replay": False} and
+        the supervisor scopes as before, resolving whatever it chooses.
         """
         if not self.services.settings.fastpath:
             return {}
         ctx = self.ctx(state)
-        candidate = _candidate_sheet(ctx.profile(), self.services.settings.fastpath_min_list)
-        if candidate is None:
-            return {"resolution_summary": None}
-        sheet, header_row = candidate
-        # A CSV's sheet is named after its file, whatever name was asked for.
-        name = ctx.workbook().select(sheet).name
-        if ctx.resolved_layout == (name, header_row) and ctx.resolution is not None:
-            resolution = ctx.resolution  # already resolved this exact layout above
-        else:
-            try:
-                headers = headers_for(ctx, sheet, header_row)
-            except LayoutError:
-                return {"resolution_summary": None}
-            resolution = self.services.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
-            ctx.resolution = resolution
-            ctx.resolved_layout = (name, header_row)
-        return {"resolution_summary": _resolution_summary(name, header_row, resolution)}
+        min_score = self.services.settings.fastpath_min_score
+        qualified: list[tuple[str, int, ResolutionSet]] = []
+        for asked, header_row in _candidate_sheets(ctx.profile(), self.services.settings.fastpath_min_list):
+            # A CSV's sheet is named after its file, whatever name was asked for.
+            name = ctx.workbook().select(asked).name
+            if ctx.resolved_layout == (name, header_row) and ctx.resolution is not None:
+                resolution = ctx.resolution  # already resolved this exact layout above
+            else:
+                try:
+                    headers = headers_for(ctx, asked, header_row)
+                except LayoutError:
+                    continue
+                resolution = self.services.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
+                ctx.resolution = resolution
+                ctx.resolved_layout = (name, header_row)
+            if _qualifies(resolution, min_score):
+                qualified.append((name, header_row, resolution))
+        if len(qualified) != 1:
+            ctx.resolution = None
+            ctx.resolved_layout = None
+            return {}
+        sheet, header_row, resolution = qualified[0]
+        ctx.resolution = resolution
+        ctx.resolved_layout = (sheet, header_row)
+        return {"resolution_summary": _resolution_summary(sheet, header_row, resolution)}
 
     def resolve(self, state: SpineState) -> State:
         """Replay when this sponsor has an approved recipe and history still resolves its bindings."""

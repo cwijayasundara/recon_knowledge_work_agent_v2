@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from onboarding_sdk.resolve import ResolutionSet
 
 from onboarding_agent.assembly import Services
 from onboarding_agent.graph.nodes import Spine
@@ -67,38 +68,73 @@ def test_single_sheet_csv_resolves_in_spine(services: Services) -> None:
     assert ctx.resolution.bindings() == {"affiliate_id": "Affiliate ID", "affiliate_name": "Affiliate Name"}
 
 
-def test_two_sheets_yields_no_candidate(services: Services) -> None:
+def test_two_qualifying_sheets_yield_no_candidate(services: Services, monkeypatch: pytest.MonkeyPatch) -> None:
     context_for(services, "two_sheets.xlsx")
     spine = Spine(services)
+    calls = _count_resolves(services, monkeypatch)
     patch = spine.resolve(_state("two_sheets.xlsx"))
-    assert patch == {"replay": False, "resolution_summary": None}
+    # Both sheets are list-like and both qualify: no candidate, exactly the
+    # supervisor-path patch, and nothing left cached for the draft to mistake
+    # for a candidate.
+    assert patch == {"replay": False}
+    assert len(calls) == 2
     ctx = _ctx(spine, "two_sheets.xlsx")
     assert ctx.resolution is None
     assert ctx.resolved_layout is None
 
 
-def test_sheet_below_threshold_has_no_candidate(services: Services) -> None:
+def test_titled_workbook_qualifies_on_its_affiliates_sheet(services: Services, monkeypatch: pytest.MonkeyPatch) -> None:
+    context_for(services, "titled.xlsx")
+    spine = Spine(services)
+    calls = _count_resolves(services, monkeypatch)
+    patch = spine.resolve(_state("titled.xlsx"))
+    # Every list-like sheet is resolved; only the Affiliates sheet qualifies —
+    # the Notes sheet's columns do not match the name field.
+    assert len(calls) == 2
+    assert patch["replay"] is False
+    summary = patch["resolution_summary"]
+    assert (summary["sheet"], summary["header_row"]) == ("Affiliates", 4)
+    assert summary["fields"]["affiliate_name"]["decision"] == "matched"
+    assert _ctx(spine, "titled.xlsx").resolved_layout == ("Affiliates", 4)
+
+
+def test_header_only_csv_qualifies(services: Services) -> None:
+    # A lone profiled sheet is resolved whatever its list score (a header-only
+    # CSV scores 0 for want of data rows); the resolver still matches its headers.
     context_for(services, "empty.csv")
     spine = Spine(services)
     patch = spine.resolve(_state("empty.csv"))
-    assert patch == {"replay": False, "resolution_summary": None}
-    assert _ctx(spine, "empty.csv").resolution is None
+    assert patch["replay"] is False
+    summary = patch["resolution_summary"]
+    assert (summary["sheet"], summary["header_row"]) == ("empty", 1)
+    assert summary["fields"]["affiliate_id"]["decision"] == "matched"
+    assert summary["fields"]["affiliate_name"]["decision"] == "matched"
+    assert _ctx(spine, "empty.csv").resolved_layout == ("empty", 1)
 
 
-def test_unfamiliar_headers_still_resolve(services: Services) -> None:
+def test_unfamiliar_headers_resolve_but_do_not_qualify(services: Services, monkeypatch: pytest.MonkeyPatch) -> None:
     context_for(services, "renamed.xlsx")
     spine = Spine(services)
+    seen: list[ResolutionSet] = []
+    real = services.resolver.resolve
+
+    def recording(sponsor_id: str, headers: list[str], *, run_id: str) -> Any:
+        resolution = real(sponsor_id, headers, run_id=run_id)
+        seen.append(resolution)
+        return resolution
+
+    monkeypatch.setattr(services.resolver, "resolve", recording)
     patch = spine.resolve(_state("renamed.xlsx"))
-    summary = patch["resolution_summary"]
-    assert summary["sheet"] == "Export" and summary["header_row"] == 1
-    ident = summary["fields"]["affiliate_id"]
-    assert (ident["column"], ident["route"], ident["decision"]) == ("Affiliate Id", "ontology_exact", "matched")
-    name = summary["fields"]["affiliate_name"]
-    assert (name["column"], name["decision"]) == (None, "needs_review")
+    # The Export sheet is resolved (its routes are the resolver's own work),
+    # but its fuzzy name score is below the threshold: no candidate.
+    assert patch == {"replay": False}
+    assert len(seen) == 1
+    ident, name = seen[0].fields["affiliate_id"], seen[0].fields["affiliate_name"]
+    assert (ident.column, ident.route, ident.decision) == ("Affiliate Id", "ontology_exact", "matched")
+    assert (name.column, name.decision) == (None, "needs_review")
     # The candidates are the resolver's own fuzzy work, forwarded unchanged.
-    resolution = _ctx(spine, "renamed.xlsx").resolution
-    assert resolution is not None
-    assert "Affi Name" in [c.column for c in resolution.fields["affiliate_name"].candidates]
+    assert "Affi Name" in [c.column for c in name.candidates]
+    assert _ctx(spine, "renamed.xlsx").resolution is None
 
 
 def test_fastpath_off_resolves_nothing(tmp_path: Path) -> None:

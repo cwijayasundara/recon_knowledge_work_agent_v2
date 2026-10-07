@@ -1,9 +1,10 @@
-"""write_standard_recipe and register_authored_recipe."""
+"""write_standard_recipe, register_authored_recipe and the shared standard-recipe builder."""
 
 from __future__ import annotations
 
 import json
 import shlex
+from typing import Any
 
 from langchain_core.tools import BaseTool, tool
 from onboarding_sdk import recipes
@@ -15,9 +16,48 @@ from .pipeline import sandbox_python, sha256_of
 from .resolve import LayoutError, set_layout
 
 
-def make_recipe_tools(ctx: RunContext) -> list[BaseTool]:
-    recipe_dir = ctx.run_dir / "recipes"
+class RecipeCheckFailed(RuntimeError):
+    """The generated standard recipe did not pass ``recipes.check``."""
 
+    def __init__(self, errors: list[str]) -> None:
+        super().__init__("standard recipe failed its check")
+        self.errors = errors
+
+
+def build_standard_recipe(
+    ctx: RunContext, sheet: str, header_row: int, affiliate_name: str, affiliate_id: str | None = None
+) -> dict[str, Any]:
+    """set_layout → recipes.standard → recipes.check → ctx.candidate_recipe.
+
+    Shared by the write_standard_recipe tool and the fast path's draft, so a
+    code-drafted brief proposes exactly the recipe the tool would. Returns the
+    checked recipe dict; raises LayoutError for a bad layout and
+    RecipeCheckFailed when the check fails (candidate cleared).
+    """
+    set_layout(ctx, sheet, header_row, {"affiliate_id": affiliate_id, "affiliate_name": affiliate_name})
+    assert ctx.bindings is not None
+    source = recipes.standard(ctx.bindings, sheet, header_row)
+    recipe_dir = ctx.run_dir / "recipes"
+    recipe_dir.mkdir(parents=True, exist_ok=True)
+    path = recipe_dir / "standard.py"
+    path.write_text(source, encoding="utf-8")
+    result = recipes.check(path, ctx.upload_path)
+    if not result.ok:
+        ctx.candidate_recipe = None
+        raise RecipeCheckFailed(result.errors)
+    ctx.candidate_recipe = {
+        "origin": "standard",
+        "path": str(path),
+        "sha256": result.recipe_sha256,
+        "summary": result.summary,
+        "coverage": result.coverage,
+        "bindings": result.bindings,
+        "layout": dict(ctx.layout or {}),
+    }
+    return ctx.candidate_recipe
+
+
+def make_recipe_tools(ctx: RunContext) -> list[BaseTool]:
     @tool
     def write_standard_recipe(sheet: str, header_row: int, affiliate_name: str, affiliate_id: str | None = None) -> str:
         """Generate and check a standard recipe for a simple single-table layout (no code writing needed).
@@ -25,33 +65,12 @@ def make_recipe_tools(ctx: RunContext) -> list[BaseTool]:
         Use it when the sheet is one table under one header row. Returns the check result and coverage.
         """
         try:
-            set_layout(
-                ctx,
-                sheet,
-                header_row,
-                {"affiliate_id": affiliate_id, "affiliate_name": affiliate_name},
-            )
+            recipe = build_standard_recipe(ctx, sheet, header_row, affiliate_name, affiliate_id)
         except LayoutError as exc:
             return fail(str(exc))
-        assert ctx.bindings is not None
-        source = recipes.standard(ctx.bindings, sheet, header_row)
-        recipe_dir.mkdir(parents=True, exist_ok=True)
-        path = recipe_dir / "standard.py"
-        path.write_text(source, encoding="utf-8")
-        result = recipes.check(path, ctx.upload_path)
-        if not result.ok:
-            ctx.candidate_recipe = None
-            return fail("standard recipe failed its check", errors=result.errors)
-        ctx.candidate_recipe = {
-            "origin": "standard",
-            "path": str(path),
-            "sha256": result.recipe_sha256,
-            "summary": result.summary,
-            "coverage": result.coverage,
-            "bindings": result.bindings,
-            "layout": dict(ctx.layout or {}),
-        }
-        return ok(recipe="standard", coverage=result.coverage, summary=result.summary)
+        except RecipeCheckFailed as exc:
+            return fail("standard recipe failed its check", errors=exc.errors)
+        return ok(recipe="standard", coverage=recipe["coverage"], summary=recipe["summary"])
 
     @tool
     def register_authored_recipe() -> str:
@@ -77,6 +96,7 @@ def make_recipe_tools(ctx: RunContext) -> list[BaseTool]:
         if not report.get("ok"):
             ctx.candidate_recipe = None
             return fail("authored recipe failed its check", errors=report.get("errors", []))
+        recipe_dir = ctx.run_dir / "recipes"
         recipe_dir.mkdir(parents=True, exist_ok=True)
         path = recipe_dir / "authored.py"
         path.write_bytes(downloaded.content)
