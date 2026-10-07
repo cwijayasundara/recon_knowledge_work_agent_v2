@@ -26,6 +26,7 @@ from pydantic import ValidationError
 
 from ..assembly import Services, invoke_supervisor, run_context
 from ..persistence.interfaces import ArtifactRecord, RecipeRecord, RunRecord, now
+from ..regression import case_key, derive_case
 from ..run_context import RunContext
 from ..tools.changes import impact_dict, impact_for
 from ..tools.notes import sponsor_notes_key
@@ -792,6 +793,7 @@ class Spine:
         artifact = self._artifact(ctx, "manifest.json", json.dumps(doc, indent=2).encode(), "json")
         stores.runs.set_status(ctx.run_id, "locked")
         self._record(state, "run.locked", {"outputs": sorted(outputs), "manifest_sha256": artifact["sha256"]}, "system")
+        self._capture_regression(state, ctx)
         note = stores.objects.local_path(sponsor_notes_key(ctx.sponsor_id))
         note.parent.mkdir(parents=True, exist_ok=True)
         with note.open("a", encoding="utf-8") as handle:
@@ -804,3 +806,35 @@ class Spine:
         self.emit(ctx.run_id, "phase", {"phase": "p4", "state": "done"})
         self.forget(ctx.run_id)
         return {"artifacts": [*state.get("artifacts", []), artifact], "status": "locked", "phase": "done"}
+
+    def _capture_regression(self, state: SpineState, ctx: RunContext) -> None:
+        """Store a correction case for a locked run. Capture reads only — the
+        decision log, gates and manifest are untouched — and must never break
+        the run it observes, so every failure is logged and swallowed."""
+        if not self.services.settings.regression_capture:
+            return
+        try:
+            run = self.services.stores.runs.get(ctx.run_id)
+            artifacts = {r.name: r for r in self.services.stores.artifacts.list(ctx.run_id)}
+            csv = artifacts.get("Affiliates.csv")
+            findings = (state.get("result") or {}).get("findings")
+            if findings is None and ctx.result is not None:
+                findings = [{"code": f.code} for f in ctx.result.findings]
+            case = derive_case(
+                run_id=ctx.run_id,
+                sponsor_id=ctx.sponsor_id,
+                entity=ctx.entity,
+                fingerprint=state["fingerprint"],
+                fixture=state["upload"]["name"],
+                upload_sha256=state["upload"]["sha256"],
+                decisions=self.services.stores.decisions.list(ctx.run_id),
+                status=run.status if run else "",
+                bindings=dict(ctx.bindings or {}),
+                csv_sha256=csv.sha256 if csv else None,
+                finding_codes=(f["code"] for f in findings or []),
+            )
+            if case is not None:
+                key = case_key(ctx.sponsor_id, ctx.run_id)
+                self.services.stores.objects.put(key, json.dumps(case, indent=2).encode())
+        except Exception:
+            log.exception("regression capture failed for run %s", ctx.run_id)

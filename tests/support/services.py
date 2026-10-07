@@ -44,6 +44,7 @@ def offline_services(tmp_path: Path, models: Models, **overrides: Any) -> Servic
         "fastpath": True,
         "fastpath_min_list": 0.5,
         "fastpath_min_score": 0.95,
+        "regression_capture": True,
         **overrides,
     }
     settings = Settings(_env_file=None, **pinned)  # type: ignore[call-arg]

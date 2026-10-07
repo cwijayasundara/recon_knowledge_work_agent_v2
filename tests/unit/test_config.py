@@ -143,3 +143,16 @@ def test_fastpath_fractions_bounded(name: str, value: str, monkeypatch: pytest.M
     monkeypatch.setenv(name, value)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)  # type: ignore[call-arg]
+
+
+def test_regression_capture_defaults_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("ONB_REGRESSION_CAPTURE", raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.regression_capture is True
+
+
+def test_regression_capture_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONB_REGRESSION_CAPTURE", "false")
+    assert Settings(_env_file=None).regression_capture is False  # type: ignore[call-arg]
+    monkeypatch.setenv("ONB_REGRESSION_CAPTURE", "true")
+    assert Settings(_env_file=None).regression_capture is True  # type: ignore[call-arg]
