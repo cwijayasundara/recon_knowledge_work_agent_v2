@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 from onboarding_sdk.resolve import ColumnBindingResolver
 
@@ -34,8 +35,18 @@ class Models:
         return self.supervisor.calls + self.recipe_engineer.calls + self.copilot.calls
 
 
-def offline_services(tmp_path: Path, models: Models) -> Services:
-    settings = Settings(_env_file=None, object_root=str(tmp_path / "objects"), sandbox_backend="docker")  # type: ignore[call-arg]
+def offline_services(tmp_path: Path, models: Models, **overrides: Any) -> Services:
+    """Offline Services with the fast-path settings pinned so ONB_* env vars
+    cannot change what a test sees; pass keyword overrides to flip them."""
+    pinned: dict[str, Any] = {
+        "object_root": str(tmp_path / "objects"),
+        "sandbox_backend": "docker",
+        "fastpath": True,
+        "fastpath_min_list": 0.5,
+        "fastpath_min_score": 0.95,
+        **overrides,
+    }
+    settings = Settings(_env_file=None, **pinned)  # type: ignore[call-arg]
     return build_services(
         settings,
         stores=memory_stores(tmp_path / "objects"),

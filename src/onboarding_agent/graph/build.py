@@ -40,6 +40,7 @@ def snapshot_defaults() -> dict[str, Any]:
         "bindings": None,
         "layout": None,
         "resolution": None,
+        "resolution_summary": None,
         "options": AffiliateOptions().to_dict(),
         "result": None,
         "report": None,

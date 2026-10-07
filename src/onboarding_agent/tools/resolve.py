@@ -75,9 +75,15 @@ def make_resolve_tools(ctx: RunContext) -> list[BaseTool]:
             headers = headers_for(ctx, sheet, header_row)
         except LayoutError as exc:
             return fail(str(exc))
-        ctx.resolution = ctx.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
+        resolved_sheet = ctx.workbook().select(sheet).name
+        if ctx.resolved_layout == (resolved_sheet, header_row) and ctx.resolution is not None:
+            resolution = ctx.resolution  # the spine already resolved this exact layout
+        else:
+            resolution = ctx.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
+            ctx.resolution = resolution
+            ctx.resolved_layout = (resolved_sheet, header_row)
         prof = ctx.profile()
-        profiled = next((s for s in prof.sheets if s.name == ctx.workbook().select(sheet).name), None)
+        profiled = next((s for s in prof.sheets if s.name == resolved_sheet), None)
         evidence = []
         if profiled is not None and profiled.header_row == header_row:
             evidence = [e.to_dict() for e in evidence_for(prof, profiled.name, headers)]

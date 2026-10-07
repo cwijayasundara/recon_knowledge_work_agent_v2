@@ -262,3 +262,41 @@ def test_snapshot_before_first_checkpoint_has_full_shape(bench: Workbench) -> No
     assert snap["sponsor_id"] == "sponsor-a"
     assert snap["upload"]["name"] == "clean.csv"
     assert snap["approvers"] == [] and snap["artifacts"] == [] and snap["pending"] is None
+    assert snap["resolution_summary"] is None
+
+
+def test_fastpath_resolves_the_candidate_sheet_in_spine(bench: Workbench, models: Models) -> None:
+    models.supervisor.script = scope_standard("clean.csv")
+    run_id = _start(bench, "clean.csv")
+    snap = bench.snapshot(run_id)
+    fields = snap["resolution_summary"]["fields"]
+    assert snap["resolution_summary"]["sheet"] == "clean"
+    assert fields["affiliate_id"]["column"] == "Affiliate ID"
+    assert fields["affiliate_name"]["decision"] == "matched"
+    # The gate is unchanged: the analyst still approves the supervisor's brief.
+    assert _gate(snap) == "brief"
+    snap = _approve(bench, run_id)
+    snap = _approve(bench, run_id)
+    snap = _approve(bench, run_id)
+    assert snap["status"] == "locked"
+    assert _csv(bench, run_id) == _csv_bytes(expected("clean.csv")["rows"])
+    # The spine's code resolution changes no model behaviour: the same scope
+    # script runs, the same number of calls.
+    assert models.calls == 5
+
+
+def test_fastpath_off_restores_supervisor_path(tmp_path: Path, models: Models) -> None:
+    services = offline_services(tmp_path, models, fastpath=False)
+    bench = Workbench(services)
+    models.supervisor.script = scope_standard("clean.csv")
+    run_id = _start(bench, "clean.csv")
+    snap = bench.snapshot(run_id)
+    # The spine resolved nothing in code; scoping ran on the supervisor as before.
+    assert snap["resolution_summary"] is None
+    assert _gate(snap) == "brief"
+    snap = _approve(bench, run_id)
+    snap = _approve(bench, run_id)
+    snap = _approve(bench, run_id)
+    assert snap["status"] == "locked"
+    assert _csv(bench, run_id) == _csv_bytes(expected("clean.csv")["rows"])
+    assert models.calls == 5

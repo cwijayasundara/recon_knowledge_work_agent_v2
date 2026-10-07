@@ -43,6 +43,12 @@ class RunContext:
     emit: Emit = _no_emit
 
     resolution: ResolutionSet | None = None
+    # The (sheet, header row) a fresh resolver.resolve() is currently stored in
+    # ``resolution``: the spine's resolve node or the resolve_columns tool
+    # wrote that pair last. Readers reuse the set instead of resolving the
+    # same layout twice. ``confirm`` (the only history write) clears it, since
+    # a fresh resolve would then return the confirmed bindings from history.
+    resolved_layout: tuple[str, int] | None = None
     layout: dict[str, Any] | None = None
     bindings: dict[str, str | None] | None = None
     binding_routes: dict[str, str | None] = field(default_factory=dict)

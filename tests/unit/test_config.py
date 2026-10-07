@@ -116,3 +116,30 @@ def test_copilot_model_role() -> None:
     assert models("copilot") is models.copilot
     assert models("supervisor") is models.supervisor
     assert models("recipe_engineer") is models.recipe_engineer
+
+
+def test_fastpath_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("ONB_FASTPATH", "ONB_FASTPATH_MIN_LIST", "ONB_FASTPATH_MIN_SCORE"):
+        monkeypatch.delenv(name, raising=False)
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.fastpath is True
+    assert settings.fastpath_min_list == 0.5
+    assert settings.fastpath_min_score == 0.95
+
+
+def test_fastpath_env_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ONB_FASTPATH", "false")
+    monkeypatch.setenv("ONB_FASTPATH_MIN_LIST", "0.75")
+    monkeypatch.setenv("ONB_FASTPATH_MIN_SCORE", "0.9")
+    settings = Settings(_env_file=None)  # type: ignore[call-arg]
+    assert settings.fastpath is False
+    assert settings.fastpath_min_list == 0.75
+    assert settings.fastpath_min_score == 0.9
+
+
+@pytest.mark.parametrize("name", ["ONB_FASTPATH_MIN_LIST", "ONB_FASTPATH_MIN_SCORE"])
+@pytest.mark.parametrize("value", ["-0.1", "1.5"])
+def test_fastpath_fractions_bounded(name: str, value: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)  # type: ignore[call-arg]

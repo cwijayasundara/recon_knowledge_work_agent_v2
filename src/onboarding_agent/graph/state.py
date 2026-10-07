@@ -175,6 +175,9 @@ class SpineState(TypedDict, total=False):
     status: str
     recall: dict[str, Any] | None
     resolution: dict[str, Any] | None
+    # What the spine resolved in code: sheet, header row and per-field
+    # column/route/score/decision. None when nothing was resolved in code.
+    resolution_summary: dict[str, Any] | None
     brief: dict[str, Any] | None
     analyst_inputs: list[dict[str, Any]]
     bindings: dict[str, str | None] | None

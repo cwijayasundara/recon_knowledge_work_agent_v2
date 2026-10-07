@@ -19,6 +19,7 @@ from typing import Any
 from langgraph.types import interrupt
 from onboarding_sdk import changes as sdk_changes
 from onboarding_sdk import manifest, render, review
+from onboarding_sdk import profile as sdk_profile
 from onboarding_sdk.entities.affiliate import AffiliateOptions
 from onboarding_sdk.resolve import FieldDecision, ResolutionSet
 from pydantic import ValidationError
@@ -54,6 +55,28 @@ def _no_sink(run_id: str, kind: str, payload: dict[str, Any]) -> None:
 
 def _sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def _candidate_sheet(prof: sdk_profile.WorkbookProfile, min_list: float) -> tuple[str, int] | None:
+    """The single list-like sheet to resolve in code, or None (zero or several)."""
+    list_like = [s for s in prof.sheets if s.header_row is not None and s.looks_like_list >= min_list]
+    if len(list_like) != 1:
+        return None
+    header_row = list_like[0].header_row
+    assert header_row is not None  # filtered above
+    return (list_like[0].name, header_row)
+
+
+def _resolution_summary(sheet: str, header_row: int, resolution: ResolutionSet) -> dict[str, Any]:
+    """Per-field column/route/score/decision view of a spine resolution, for state."""
+    return {
+        "sheet": sheet,
+        "header_row": header_row,
+        "fields": {
+            name: {"column": res.column, "route": res.route, "score": res.score, "decision": res.decision}
+            for name, res in resolution.fields.items()
+        },
+    }
 
 
 class Spine:
@@ -221,28 +244,60 @@ class Spine:
             "error": None,
         }
 
+    def _resolve_candidate(self, state: SpineState) -> State:
+        """Fast path step 1: resolve the candidate sheet in code, without a model.
+
+        The candidate is the single list-like sheet of the upload; zero or
+        several list-like sheets means no candidate and nothing is resolved.
+        The summary lands in state so the brief draft and tests can read what
+        the spine resolved; the supervisor's resolve_columns tool reuses the
+        ResolutionSet for the same layout instead of resolving twice.
+        """
+        if not self.services.settings.fastpath:
+            return {}
+        ctx = self.ctx(state)
+        candidate = _candidate_sheet(ctx.profile(), self.services.settings.fastpath_min_list)
+        if candidate is None:
+            return {"resolution_summary": None}
+        sheet, header_row = candidate
+        # A CSV's sheet is named after its file, whatever name was asked for.
+        name = ctx.workbook().select(sheet).name
+        if ctx.resolved_layout == (name, header_row) and ctx.resolution is not None:
+            resolution = ctx.resolution  # already resolved this exact layout above
+        else:
+            try:
+                headers = headers_for(ctx, sheet, header_row)
+            except LayoutError:
+                return {"resolution_summary": None}
+            resolution = self.services.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
+            ctx.resolution = resolution
+            ctx.resolved_layout = (name, header_row)
+        return {"resolution_summary": _resolution_summary(name, header_row, resolution)}
+
     def resolve(self, state: SpineState) -> State:
         """Replay when this sponsor has an approved recipe and history still resolves its bindings."""
         recall = state.get("recall")
         if not recall:
-            return {"replay": False}
+            return {**self._resolve_candidate(state), "replay": False}
         ctx = self.ctx(state)
         layout = recall["layout"]
         try:
             headers = headers_for(ctx, layout["sheet"], layout["header_row"])
         except LayoutError:
-            return {"replay": False}
+            return {**self._resolve_candidate(state), "replay": False}
         resolution = self.services.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
+        ctx.resolution = resolution
+        # A CSV's sheet is named after its file; show this upload's name, not the recalled one's.
+        layout = {**layout, "sheet": ctx.workbook().select(layout["sheet"]).name}
+        ctx.resolved_layout = (layout["sheet"], layout["header_row"])
         source = self.services.stores.objects.local_path(recall["source_uri"])
         if (
             not resolution.replays(recall["bindings"])
             or not source.is_file()
             or _sha(source.read_bytes()) != recall["sha256"]
         ):
-            return {"replay": False}
-        ctx.resolution = resolution
-        # A CSV's sheet is named after its file; show this upload's name, not the recalled one's.
-        layout = {**layout, "sheet": ctx.workbook().select(layout["sheet"]).name}
+            # Not replaying: still resolve the fast path's candidate sheet for scope to reuse.
+            return {**self._resolve_candidate(state), "replay": False}
         set_layout(ctx, layout["sheet"], layout["header_row"], recall["bindings"])
         ctx.candidate_recipe = {
             "origin": recall["origin"],
@@ -355,6 +410,9 @@ class Spine:
             ctx.sponsor_id, resolution, {f: FieldDecision(column=c) for f, c in bindings.items()}, reviewer=actor
         )
         ctx.resolution = confirmed
+        # The cached resolution now predates the history write, so a fresh
+        # resolve would no longer return it; drop the spine's cache.
+        ctx.resolved_layout = None
         recipe_id = f"rcp-{uuid.uuid4().hex[:12]}"
         key = f"recipes/{ctx.sponsor_id}/{recipe_id}.py"
         source = Path(ctx.candidate_recipe["path"]).read_bytes()

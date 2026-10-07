@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     matcher_enable_llm: bool = False
     matcher_enable_embeddings: bool = False
 
+    # Code fast path: the spine resolves the single list-like sheet in code so
+    # a standard brief can be drafted without a model call. Off restores the
+    # supervisor-only scoping path.
+    fastpath: bool = True
+    fastpath_min_list: float = Field(default=0.5, ge=0.0, le=1.0)
+    fastpath_min_score: float = Field(default=0.95, ge=0.0, le=1.0)
+
     @model_validator(mode="after")
     def _azure_needs_endpoint(self) -> Settings:
         if self.model_provider == "azure_openai_v1" and not self.azure_openai_base_url:
