@@ -50,6 +50,7 @@ def _finish(bench: Workbench, run_id: str) -> dict:  # type: ignore[type-arg]
 
 
 def test_c1_report_mode_cannot_rebind_or_swap_recipe(tmp_path: Path) -> None:
+    # fastpath off: the report-mode guard needs a run where the supervisor scopes and reports.
     models = Models()
     models.supervisor.script = [
         *scope_standard("extra_columns.csv"),
@@ -66,7 +67,7 @@ def test_c1_report_mode_cannot_rebind_or_swap_recipe(tmp_path: Path) -> None:
         tools(call("submit_report", report={"summary": "ok"})),
         say("done"),
     ]
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, models, fastpath=False))
     run_id = _start(bench, "extra_columns.csv")
     bench.respond(run_id, {"action": "approve", "actor": A})
     offered = models.supervisor.offered[-1]
@@ -79,9 +80,7 @@ def test_c1_report_mode_cannot_rebind_or_swap_recipe(tmp_path: Path) -> None:
 
 
 def test_c1_spine_uses_the_approved_snapshot_even_if_context_changes(tmp_path: Path) -> None:
-    models = Models()
-    models.supervisor.script = scope_standard("extra_columns.csv")
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, Models()))
     run_id = _start(bench, "extra_columns.csv")
     bench.respond(run_id, {"action": "approve", "actor": A})
     # Anything agent-writable in the shared context is re-pinned from state.
@@ -99,9 +98,7 @@ def test_c1_spine_uses_the_approved_snapshot_even_if_context_changes(tmp_path: P
 
 
 def test_c1_recipe_file_changed_after_approval_is_refused(tmp_path: Path) -> None:
-    models = Models()
-    models.supervisor.script = scope_standard("clean.csv")
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, Models()))
     run_id = _start(bench, "clean.csv")
     snap = bench.respond(run_id, {"action": "approve", "actor": A})
     path = Path(snap["approved"]["recipe"]["path"])
@@ -114,6 +111,7 @@ def test_c1_recipe_file_changed_after_approval_is_refused(tmp_path: Path) -> Non
 
 
 def test_i1_brief_must_match_recipe_at_approval(tmp_path: Path) -> None:
+    # fastpath off: the mismatch blocker needs a supervisor-submitted brief.
     models = Models()
     models.supervisor.script = [
         *scope_standard("extra_columns.csv")[:-1],
@@ -129,7 +127,7 @@ def test_i1_brief_must_match_recipe_at_approval(tmp_path: Path) -> None:
         ),
         say("done"),
     ]
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, models, fastpath=False))
     run_id = _start(bench, "extra_columns.csv")
     snap = bench.snapshot(run_id)
     assert snap["pending"]["blocked_reasons"], snap["pending"]
@@ -139,6 +137,7 @@ def test_i1_brief_must_match_recipe_at_approval(tmp_path: Path) -> None:
 
 
 def test_i1_brief_item_type_is_applied(tmp_path: Path) -> None:
+    # fastpath off: the brief with the non-default item type is submitted by the supervisor.
     brief = brief_for("clean.csv") | {"item_type": "Non-Inventory"}
     models = Models()
     models.supervisor.script = [
@@ -147,7 +146,7 @@ def test_i1_brief_item_type_is_applied(tmp_path: Path) -> None:
         say("ok"),
         *report_simple(),
     ]
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, models, fastpath=False))
     run_id = _start(bench, "clean.csv")
     snap = bench.respond(run_id, {"action": "approve", "actor": A})
     codes = {f["code"] for f in snap["result"]["findings"]}
@@ -157,11 +156,8 @@ def test_i1_brief_item_type_is_applied(tmp_path: Path) -> None:
 
 def test_i2_options_reset_when_the_brief_is_approved_again(tmp_path: Path) -> None:
     models = Models()
-    # scope, report, report again after the change, re-scope, report.
+    # The first brief is the spine's; a layout change re-scopes, and the report follows the agent.
     models.supervisor.script = [
-        *scope_standard("ids_missing.csv"),
-        *report_simple(),
-        *report_simple(),
         *scope_standard("ids_missing.csv"),
         *report_simple(),
     ]

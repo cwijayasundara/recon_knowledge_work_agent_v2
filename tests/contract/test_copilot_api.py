@@ -21,7 +21,6 @@ from onboarding_agent.copilot.schemas import ALL_TOOLS, CheckChanges, StepOut
 from onboarding_agent.surfaces.api import create_app
 from tests.conftest import FIXTURE_DIR
 from tests.support.scripted_model import call, say, tools
-from tests.support.scripts import report_simple, scope_standard
 from tests.support.services import Models, offline_services
 
 H = {"X-Actor": "analyst@sponsor-a"}
@@ -191,7 +190,6 @@ def test_oversize_body_is_413(setup) -> None:  # type: ignore[no-untyped-def]
 
 
 def _bound_run(client: TestClient, models: Models) -> str:
-    models.supervisor.script = [*scope_standard("edge.csv"), *report_simple()]
     run_id = _upload(client, "edge.csv")
     assert client.post(f"/runs/{run_id}/gate", json={"action": "approve"}, headers=H).status_code == 202
     return run_id

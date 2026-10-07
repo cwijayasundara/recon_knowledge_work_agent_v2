@@ -15,7 +15,7 @@ from tests.conftest import FIXTURE_DIR
 from tests.golden.test_affiliate_golden import _csv_bytes
 from tests.support.pipeline import expected
 from tests.support.scripted_model import call, say, tools
-from tests.support.scripts import report_simple, scope_standard
+from tests.support.scripts import scope_standard
 from tests.support.services import Models, offline_services
 
 ANALYST = "analyst@sponsor-a"
@@ -50,7 +50,7 @@ def bench(tmp_path: Path, models: Models) -> Workbench:
 
 
 def test_happy_path_clean_ends_locked(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = scope_standard("clean.csv")
+    # clean.csv is unambiguous: the brief is drafted in code and no model is ever invoked.
     run_id = _start(bench, "clean.csv")
     snap = bench.snapshot(run_id)
     assert _gate(snap) == "brief"
@@ -71,14 +71,14 @@ def test_happy_path_clean_ends_locked(bench: Workbench, models: Models) -> None:
     assert bench.services.stores.runs.get(run_id).status == "locked"  # type: ignore[union-attr]
     kinds = [d.kind for d in bench.services.stores.decisions.list(run_id)]
     assert kinds == ["brief.approve", "findings.approve", "signoff.approve", "run.locked"]
-    # No model after scoping: a clean file needs no report from the agent.
-    assert models.calls == 5
+    # No agent at all: the spine resolved, drafted and reported in code.
+    assert models.calls == 0
     recipe = bench.services.stores.recipes.find_active("sponsor-a", "affiliate", snap["fingerprint"])
     assert recipe is not None and recipe.origin == "standard"
 
 
 def test_findings_approve_refused_with_open_error(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = [*scope_standard("edge.csv"), *report_simple()]
+    # The fast path drafts the brief and reports the findings in code; the gate refuses on its own.
     run_id = _start(bench, "edge.csv")
     snap = _approve(bench, run_id)
     assert _gate(snap) == "findings"
@@ -89,7 +89,6 @@ def test_findings_approve_refused_with_open_error(bench: Workbench, models: Mode
 
 
 def test_id_override_resolves_collision(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = [*scope_standard("edge.csv"), *report_simple(), *report_simple()]
     run_id = _start(bench, "edge.csv")
     _approve(bench, run_id)
     snap = bench.respond(
@@ -107,7 +106,6 @@ def test_id_override_resolves_collision(bench: Workbench, models: Models) -> Non
 
 
 def test_refused_change_is_not_applied(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = [*scope_standard("edge.csv"), *report_simple()]
     run_id = _start(bench, "edge.csv")
     _approve(bench, run_id)
     snap = bench.respond(
@@ -124,8 +122,6 @@ def test_refused_change_is_not_applied(bench: Workbench, models: Models) -> None
 
 def test_instruction_with_no_applicable_change(bench: Workbench, models: Models) -> None:
     models.supervisor.script = [
-        *scope_standard("edge.csv"),
-        *report_simple(),
         tools(
             call(
                 "submit_proposal",
@@ -149,7 +145,6 @@ def test_instruction_with_no_applicable_change(bench: Workbench, models: Models)
 def test_restart_between_gates_resumes(tmp_path: Path, models: Models) -> None:
     services = offline_services(tmp_path, models)
     saver = InMemorySaver()
-    models.supervisor.script = scope_standard("clean.csv")
     first = Workbench(services, checkpointer=saver)
     run_id = _start(first, "clean.csv")
     _approve(first, run_id)
@@ -240,7 +235,6 @@ def test_upload_guards(bench: Workbench) -> None:
 
 
 def test_replayed_csv_reports_its_own_sheet_name(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = [*scope_standard("clean.csv"), *report_simple()]
     _complete(bench, _start(bench, "clean.csv"))
     replay = _start(bench, "edge.csv")
     snap = bench.snapshot(replay)
@@ -266,23 +260,21 @@ def test_snapshot_before_first_checkpoint_has_full_shape(bench: Workbench) -> No
 
 
 def test_fastpath_resolves_the_candidate_sheet_in_spine(bench: Workbench, models: Models) -> None:
-    models.supervisor.script = scope_standard("clean.csv")
     run_id = _start(bench, "clean.csv")
     snap = bench.snapshot(run_id)
     fields = snap["resolution_summary"]["fields"]
     assert snap["resolution_summary"]["sheet"] == "clean"
     assert fields["affiliate_id"]["column"] == "Affiliate ID"
     assert fields["affiliate_name"]["decision"] == "matched"
-    # The gate is unchanged: the analyst still approves the supervisor's brief.
+    # The gate is unchanged: the analyst still approves, here the code-drafted brief.
     assert _gate(snap) == "brief"
     snap = _approve(bench, run_id)
     snap = _approve(bench, run_id)
     snap = _approve(bench, run_id)
     assert snap["status"] == "locked"
     assert _csv(bench, run_id) == _csv_bytes(expected("clean.csv")["rows"])
-    # The spine's code resolution changes no model behaviour: the same scope
-    # script runs, the same number of calls.
-    assert models.calls == 5
+    # Resolution, draft and report all ran in code: the supervisor never spoke.
+    assert models.calls == 0
 
 
 def test_fastpath_off_restores_supervisor_path(tmp_path: Path, models: Models) -> None:

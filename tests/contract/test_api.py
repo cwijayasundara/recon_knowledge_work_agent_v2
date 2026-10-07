@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from onboarding_agent.surfaces.api import create_app
 from tests.conftest import FIXTURE_DIR
-from tests.support.scripts import report_simple, scope_standard
 from tests.support.services import Models, offline_services
 
 H = {"X-Actor": "analyst@sponsor-a"}
@@ -33,8 +32,7 @@ def _upload(client: TestClient, name: str, sponsor: str = "sponsor-a") -> str:
 
 
 def test_full_run_over_http(setup) -> None:  # type: ignore[no-untyped-def]
-    client, models = setup
-    models.supervisor.script = scope_standard("clean.csv")
+    client, _models = setup
     run_id = _upload(client, "clean.csv")
     snap = client.get(f"/runs/{run_id}", headers=H).json()
     assert snap["pending"]["gate"] == "brief"
@@ -64,8 +62,7 @@ def test_full_run_over_http(setup) -> None:  # type: ignore[no-untyped-def]
 
 
 def test_dry_run_endpoint(setup) -> None:  # type: ignore[no-untyped-def]
-    client, models = setup
-    models.supervisor.script = [*scope_standard("edge.csv"), *report_simple()]
+    client, _models = setup
     run_id = _upload(client, "edge.csv")
     client.post(f"/runs/{run_id}/gate", json={"action": "approve"}, headers=H)
     ok = client.post(
@@ -102,8 +99,7 @@ def test_bearer_token_required_when_configured(tmp_path: Path) -> None:
 
 
 def test_events_history_is_recorded(setup) -> None:  # type: ignore[no-untyped-def]
-    client, models = setup
-    models.supervisor.script = scope_standard("clean.csv")
+    client, _models = setup
     run_id = _upload(client, "clean.csv")
     kinds = [e["event"] for e in client.app.state.hub.history(run_id)]  # type: ignore[attr-defined]
     assert {"step", "phase", "brief", "gate", "idle"} <= set(kinds)
@@ -130,9 +126,7 @@ def test_seed_sponsors(tmp_path: Path) -> None:
 
 
 def test_snapshot_without_checkpoint_falls_back_to_the_run_record(tmp_path: Path) -> None:
-    models = Models()
-    services = offline_services(tmp_path, models)
-    models.supervisor.script = scope_standard("clean.csv")
+    services = offline_services(tmp_path, Models())
     run_id = _upload(TestClient(create_app(services=services, inline_jobs=True)), "clean.csv")
 
     # A fresh app has a fresh in-memory checkpointer: the run record exists, its checkpoint does not.

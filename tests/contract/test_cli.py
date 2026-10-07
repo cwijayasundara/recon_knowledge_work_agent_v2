@@ -5,14 +5,12 @@ from pathlib import Path
 
 from onboarding_agent.surfaces import cli
 from tests.conftest import FIXTURE_DIR
-from tests.support.scripts import report_simple, scope_standard
 from tests.support.services import Models, offline_services
 
 
 def test_cli_interactive_run_with_ack(tmp_path: Path) -> None:
-    models = Models()
-    models.supervisor.script = [*scope_standard("ids_missing.csv"), *report_simple()]
-    services = offline_services(tmp_path, models)
+    # ids_missing.csv is unambiguous: the run needs no agent, the analyst drives every gate.
+    services = offline_services(tmp_path, Models())
     args = cli.parser().parse_args(
         ["run", "affiliate", str(FIXTURE_DIR / "ids_missing.csv"), "--sponsor", "sponsor-a", "--actor", "me"]
     )
@@ -28,9 +26,7 @@ def test_cli_interactive_run_with_ack(tmp_path: Path) -> None:
 
 
 def test_cli_history(tmp_path: Path) -> None:
-    models = Models()
-    models.supervisor.script = scope_standard("clean.csv")
-    services = offline_services(tmp_path, models)
+    services = offline_services(tmp_path, Models())
     args = cli.parser().parse_args(
         ["run", "affiliate", str(FIXTURE_DIR / "clean.csv"), "--sponsor", "sponsor-a", "--yes"]
     )

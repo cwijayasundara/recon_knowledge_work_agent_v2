@@ -178,6 +178,9 @@ class SpineState(TypedDict, total=False):
     # What the spine resolved in code: sheet, header row and per-field
     # column/route/score/decision. None when nothing was resolved in code.
     resolution_summary: dict[str, Any] | None
+    # The resolve node drafted the brief in code and routed straight to the
+    # brief gate; no agent is part of the run unless a gate hands it to one.
+    fastpath: bool
     brief: dict[str, Any] | None
     analyst_inputs: list[dict[str, Any]]
     bindings: dict[str, str | None] | None

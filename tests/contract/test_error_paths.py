@@ -19,17 +19,18 @@ ANALYST = "analyst@sponsor-a"
 
 
 def test_model_timeout_during_scope_reaches_brief_gate_with_message(tmp_path: Path) -> None:
+    # two_sheets.xlsx has two qualifying sheets, so scoping always runs on the supervisor.
     def timeout(messages: list[BaseMessage]):  # type: ignore[no-untyped-def]
         raise TimeoutError("model did not answer in 120s")
 
     models = Models()
-    models.supervisor.script = [timeout, *scope_standard("clean.csv")]
+    models.supervisor.script = [timeout, *scope_standard("two_sheets.xlsx")]
     bench = Workbench(offline_services(tmp_path, models))
     run_id = bench.start(
         sponsor_id="sponsor-a",
         entity="affiliate",
-        file_name="clean.csv",
-        data=(FIXTURE_DIR / "clean.csv").read_bytes(),
+        file_name="two_sheets.xlsx",
+        data=(FIXTURE_DIR / "two_sheets.xlsx").read_bytes(),
         actor=ANALYST,
     )
     snap = bench.snapshot(run_id)
@@ -61,9 +62,7 @@ def test_sandbox_timeout_is_a_recipe_failure(tmp_path: Path) -> None:
 
 
 def test_failed_recipe_stops_at_findings_gate_with_message(tmp_path: Path) -> None:
-    models = Models()
-    models.supervisor.script = scope_standard("clean.csv")
-    bench = Workbench(offline_services(tmp_path, models))
+    bench = Workbench(offline_services(tmp_path, Models()))
     run_id = bench.start(
         sponsor_id="sponsor-a",
         entity="affiliate",
@@ -112,13 +111,13 @@ def test_spans_are_emitted(tmp_path: Path) -> None:
     observability.tracer = provider.get_tracer("test")
     try:
         models = Models()
-        models.supervisor.script = scope_standard("clean.csv")
+        models.supervisor.script = scope_standard("two_sheets.xlsx")
         bench = Workbench(offline_services(tmp_path, models))
         bench.start(
             sponsor_id="sponsor-a",
             entity="affiliate",
-            file_name="clean.csv",
-            data=(FIXTURE_DIR / "clean.csv").read_bytes(),
+            file_name="two_sheets.xlsx",
+            data=(FIXTURE_DIR / "two_sheets.xlsx").read_bytes(),
             actor=ANALYST,
         )
     finally:

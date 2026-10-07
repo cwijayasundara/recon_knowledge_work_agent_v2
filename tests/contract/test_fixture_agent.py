@@ -37,10 +37,13 @@ def _gate(client: TestClient, run_id: str, **body) -> dict:  # type: ignore[no-u
 
 
 def test_edge_file_fixed_through_the_api(client: TestClient) -> None:
+    # edge.csv fast-paths: the brief and the findings report are drafted in code,
+    # so the fixture agent (the supervisor stand-in) is never invoked.
     run_id = _run(client, "edge.csv")
     snap = _gate(client, run_id, action="approve")
     assert snap["pending"]["gate"] == "findings"
-    assert snap["report"]["explanations"]["AFF_ERR_ITEM_ID_DUPLICATE"].startswith("Two different")
+    assert snap["report"]["summary"] == "Findings are listed below."
+    assert snap["report"]["explanations"] == {}
     snap = _gate(
         client,
         run_id,

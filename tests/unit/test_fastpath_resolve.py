@@ -11,6 +11,7 @@ import pytest
 from onboarding_sdk.resolve import ResolutionSet
 
 from onboarding_agent.assembly import Services
+from onboarding_agent.graph.fastpath import SUMMARY
 from onboarding_agent.graph.nodes import Spine
 from onboarding_agent.run_context import RunContext
 from tests.support.services import Models, context_for, offline_services
@@ -66,6 +67,20 @@ def test_single_sheet_csv_resolves_in_spine(services: Services) -> None:
     assert ctx.resolved_layout == ("clean", 1)
     assert ctx.resolution is not None
     assert ctx.resolution.bindings() == {"affiliate_id": "Affiliate ID", "affiliate_name": "Affiliate Name"}
+
+
+def test_resolve_returns_the_drafted_brief_for_the_fast_path(services: Services) -> None:
+    context_for(services, "clean.csv")
+    spine = Spine(services)
+    patch = spine.resolve(_state("clean.csv"))
+    # The brief is drafted in code and the run routes straight to the brief gate.
+    assert patch["fastpath"] is True
+    assert patch["status"] == "awaiting_brief"
+    assert patch["brief"]["summary"] == SUMMARY
+    # The context carries what the gate reads; state carries what a restart rebuilds from.
+    ctx = _ctx(spine, "clean.csv")
+    assert ctx.brief is not None and ctx.brief.summary == SUMMARY
+    assert ctx.candidate_recipe is not None and ctx.candidate_recipe["origin"] == "standard"
 
 
 def test_two_qualifying_sheets_yield_no_candidate(services: Services, monkeypatch: pytest.MonkeyPatch) -> None:

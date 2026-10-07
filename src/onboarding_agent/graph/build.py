@@ -1,7 +1,7 @@
 """The run spine graph and the Workbench facade the CLI and API drive.
 
-intake → resolve → (build | scope → gate_brief) → build → report → gate_findings
-→ render → gate_signoff → finalize
+intake → resolve → (build | gate_brief | scope → gate_brief) → build → report
+→ gate_findings → render → gate_signoff → finalize
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ def snapshot_defaults() -> dict[str, Any]:
         "layout": None,
         "resolution": None,
         "resolution_summary": None,
+        "fastpath": False,
         "options": AffiliateOptions().to_dict(),
         "result": None,
         "report": None,
@@ -83,7 +84,11 @@ def build_graph(spine: Spine, checkpointer: BaseCheckpointSaver[Any] | None = No
     g.add_edge(START, "intake")
     g.add_edge("intake", "resolve")
     g.add_conditional_edges(
-        "resolve", lambda s: "build" if s.get("replay") else "scope", {"build": "build", "scope": "scope"}
+        "resolve",
+        # A replayed run builds; a fast-path run (brief drafted in code) goes
+        # straight to the brief gate; otherwise the supervisor scopes first.
+        lambda s: "build" if s.get("replay") else ("gate_brief" if s.get("fastpath") else "scope"),
+        {"build": "build", "scope": "scope", "gate_brief": "gate_brief"},
     )
     g.add_edge("scope", "gate_brief")
     g.add_conditional_edges(

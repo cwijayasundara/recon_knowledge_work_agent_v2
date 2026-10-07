@@ -32,6 +32,7 @@ from ..tools.notes import sponsor_notes_key
 from ..tools.pipeline import RecipeFailed, build, result_key, summarize
 from ..tools.resolve import LayoutError, headers_for, set_layout
 from . import gates
+from .fastpath import draft as draft_brief
 from .state import (
     BindingView,
     ChangeProposal,
@@ -307,17 +308,33 @@ class Spine:
         ctx.resolved_layout = (sheet, header_row)
         return {"resolution_summary": _resolution_summary(sheet, header_row, resolution)}
 
+    def _fastpath_or_scope(self, state: SpineState) -> State:
+        """No replay: when the spine resolved exactly one qualifying sheet, draft the
+        brief in code and route straight to the brief gate (``fastpath``, no agent);
+        otherwise return the resolve patch untouched and the supervisor scopes."""
+        patch = self._resolve_candidate(state)
+        if not patch.get("resolution_summary"):
+            return patch
+        ctx = self.ctx(state)
+        brief = draft_brief(ctx, self.services.settings)
+        if brief is None:
+            return patch
+        ctx.brief = brief
+        self.emit(ctx.run_id, "brief", brief.model_dump())
+        self.step(ctx.run_id, "p1.read", "done", {"layout": ctx.layout})
+        return {**patch, **self._context_patch(ctx), "fastpath": True, "status": "awaiting_brief"}
+
     def resolve(self, state: SpineState) -> State:
         """Replay when this sponsor has an approved recipe and history still resolves its bindings."""
         recall = state.get("recall")
         if not recall:
-            return {**self._resolve_candidate(state), "replay": False}
+            return {**self._fastpath_or_scope(state), "replay": False}
         ctx = self.ctx(state)
         layout = recall["layout"]
         try:
             headers = headers_for(ctx, layout["sheet"], layout["header_row"])
         except LayoutError:
-            return {**self._resolve_candidate(state), "replay": False}
+            return {**self._fastpath_or_scope(state), "replay": False}
         resolution = self.services.resolver.resolve(ctx.sponsor_id, headers, run_id=ctx.run_id)
         ctx.resolution = resolution
         # A CSV's sheet is named after its file; show this upload's name, not the recalled one's.
@@ -330,7 +347,7 @@ class Spine:
             or _sha(source.read_bytes()) != recall["sha256"]
         ):
             # Not replaying: still resolve the fast path's candidate sheet for scope to reuse.
-            return {**self._resolve_candidate(state), "replay": False}
+            return {**self._fastpath_or_scope(state), "replay": False}
         set_layout(ctx, layout["sheet"], layout["header_row"], recall["bindings"])
         ctx.candidate_recipe = {
             "origin": recall["origin"],
@@ -544,21 +561,25 @@ class Spine:
             text = state.get("error") or f"{n} affiliates, no findings. Ready for review."
             report = RunReport(summary=text, findings_by_code={}, blocking_count=0, ack_required=0)
         else:
-            ctx.report = None
-            try:
-                invoke_supervisor(
-                    self.services, ctx, "report", summary={k: v for k, v in result.items() if k != "findings"}
-                )
-            except Exception as exc:
-                log.exception("report failed")
-                self.emit(ctx.run_id, "error", {"message": f"report failed: {exc}"})
-            self._pin(state, ctx)
-            report = ctx.report or RunReport(
+            report = RunReport(
                 summary="Findings are listed below.",
                 findings_by_code=result["findings_by_code"],
                 blocking_count=result["errors"],
                 ack_required=result["ack_required"],
             )
+            if ctx.model_calls:
+                # An agent is already part of this run, so it explains the findings.
+                # On the fast path none ever runs, and this report stands instead.
+                ctx.report = None
+                try:
+                    invoke_supervisor(
+                        self.services, ctx, "report", summary={k: v for k, v in result.items() if k != "findings"}
+                    )
+                except Exception as exc:
+                    log.exception("report failed")
+                    self.emit(ctx.run_id, "error", {"message": f"report failed: {exc}"})
+            self._pin(state, ctx)
+            report = ctx.report or report
         self.emit(ctx.run_id, "report", report.model_dump())
         return {"report": report.model_dump(), "model_calls": ctx.model_calls}
 
