@@ -567,9 +567,10 @@ class Spine:
                 blocking_count=result["errors"],
                 ack_required=result["ack_required"],
             )
-            if ctx.model_calls:
-                # An agent is already part of this run, so it explains the findings.
-                # On the fast path none ever runs, and this report stands instead.
+            if ctx.model_calls or state.get("replay"):
+                # An agent is already part of this run, or the run replays a recalled
+                # recipe: the findings report stays the agent's. Only the fast path —
+                # no agent, no replay — gets the code report above.
                 ctx.report = None
                 try:
                     invoke_supervisor(

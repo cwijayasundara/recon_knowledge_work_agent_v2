@@ -15,7 +15,7 @@ from tests.conftest import FIXTURE_DIR
 from tests.golden.test_affiliate_golden import _csv_bytes
 from tests.support.pipeline import expected
 from tests.support.scripted_model import call, say, tools
-from tests.support.scripts import scope_standard
+from tests.support.scripts import report_simple, scope_standard
 from tests.support.services import Models, offline_services
 
 ANALYST = "analyst@sponsor-a"
@@ -235,12 +235,18 @@ def test_upload_guards(bench: Workbench) -> None:
 
 
 def test_replayed_csv_reports_its_own_sheet_name(bench: Workbench, models: Models) -> None:
+    # clean.csv fast-paths (no script consumed); the replay keeps the agent's findings report.
+    models.supervisor.script = report_simple()
     _complete(bench, _start(bench, "clean.csv"))
+    assert models.calls == 0
     replay = _start(bench, "edge.csv")
     snap = bench.snapshot(replay)
     assert snap["replay"] is True
     assert snap["layout"]["sheet"] == "edge"
     assert snap["brief"]["source"]["sheet"] == "edge"
+    # The replayed run's findings report is the agent's, not the fast path's code draft.
+    assert snap["report"]["summary"] == "Findings explained."
+    assert models.calls == 3
 
 
 def test_snapshot_before_first_checkpoint_has_full_shape(bench: Workbench) -> None:
