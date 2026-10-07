@@ -100,7 +100,14 @@ def test_copilot_env_override(monkeypatch) -> None:  # type: ignore[no-untyped-d
 
 ```python
 import pytest
-from onboarding_agent.copilot.rules import RangeSpec, check_formula, count_cells, parse_range, truncate_cell, valid_sheet_name
+from onboarding_agent.copilot.rules import (
+    RangeSpec,
+    check_formula,
+    count_cells,
+    parse_range,
+    truncate_cell,
+    valid_sheet_name,
+)
 
 
 def test_parse_range_single_and_block() -> None:
@@ -113,7 +120,9 @@ def test_parse_range_normalises_reversed() -> None:
     assert parse_range("C3:A1") == parse_range("A1:C3")
 
 
-@pytest.mark.parametrize("bad", ["", "A:A", "1:1", "A", "1", "A1:B", "A0", "XFE1", "A1048577", "A1:B2:C3", "Sheet1!A1", "A1;B2", "=A1"])
+@pytest.mark.parametrize(
+    "bad", ["", "A:A", "1:1", "A", "1", "A1:B", "A0", "XFE1", "A1048577", "A1:B2:C3", "Sheet1!A1", "A1;B2", "=A1"]
+)
 def test_parse_range_rejects(bad: str) -> None:
     with pytest.raises(ValueError):
         parse_range(bad)
@@ -137,13 +146,27 @@ def test_truncate_cell() -> None:
     assert truncate_cell("a\x00b\x07c", 500) == "abc"
 
 
-@pytest.mark.parametrize("f", ["=WEBSERVICE(\"http://x\")", "=hyperlink(A1)", "=1+CALL(\"x\")", "=REGISTER.ID(\"a\")", "=EXEC(\"x\")", "=cmd|' /c calc'!A1", "=SUM(A1)+FILTERXML(A1,\"x\")", "=RTD(\"a\")", "=SQL.REQUEST(\"a\")", "=ENCODEURL(A1)"])
+@pytest.mark.parametrize(
+    "f",
+    [
+        '=WEBSERVICE("http://x")',
+        "=hyperlink(A1)",
+        '=1+CALL("x")',
+        '=REGISTER.ID("a")',
+        '=EXEC("x")',
+        "=cmd|' /c calc'!A1",
+        '=SUM(A1)+FILTERXML(A1,"x")',
+        '=RTD("a")',
+        '=SQL.REQUEST("a")',
+        "=ENCODEURL(A1)",
+    ],
+)
 def test_formula_denylist(f: str) -> None:
     with pytest.raises(ValueError):
         check_formula(f)
 
 
-@pytest.mark.parametrize("f", ["=SUM(A1:A3)", "=IF(A1>2,\"y\",\"n\")", "=VLOOKUP(A1,B:C,2,FALSE)", "=A1&B1"])
+@pytest.mark.parametrize("f", ["=SUM(A1:A3)", '=IF(A1>2,"y","n")', "=VLOOKUP(A1,B:C,2,FALSE)", "=A1&B1"])
 def test_formula_allowed(f: str) -> None:
     check_formula(f)
 
@@ -169,7 +192,7 @@ from typing import Any
 MAX_ROW = 1_048_576
 MAX_COL = 16_384
 _A1 = re.compile(r"^\$?([A-Za-z]{1,3})\$?(\d{1,7})(?::\$?([A-Za-z]{1,3})\$?(\d{1,7}))?$")
-_BAD_SHEET = set('[]:*?/\\')
+_BAD_SHEET = set("[]:*?/\\")
 _CONTROL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 _DENY = re.compile(
     r"(?i)\b(WEBSERVICE|HYPERLINK|CALL|REGISTER\.ID|EXEC|FILTERXML|ENCODEURL|RTD|SQL\.REQUEST|DDE)\s*\("
